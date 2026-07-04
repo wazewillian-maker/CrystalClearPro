@@ -9,10 +9,26 @@ import { dashboardMetrics, maintenanceTasks } from "../data/mock-dashboard";
 import colors from "../theme/colors";
 
 type HomeScreenProps = {
+  onOpenClients: () => void;
+  onOpenProducts: () => void;
+  onOpenAttendance: () => void;
+  onOpenHistory: () => void;
+  onOpenAgenda: () => void;
+  onOpenFinance: () => void;
+  onOpenStock: () => void;
   onLogout: () => void;
 };
 
-export function HomeScreen({ onLogout }: HomeScreenProps) {
+export function HomeScreen({
+  onOpenClients,
+  onOpenProducts,
+  onOpenAttendance,
+  onOpenHistory,
+  onOpenAgenda,
+  onOpenFinance,
+  onOpenStock,
+  onLogout,
+}: HomeScreenProps) {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -25,13 +41,59 @@ export function HomeScreen({ onLogout }: HomeScreenProps) {
               Ola, Marina. Seus atendimentos de hoje ja estao organizados por prioridade.
             </Text>
           </View>
-          <PrimaryButton
-            icon="x"
-            onPress={onLogout}
-            style={styles.logoutButton}
-            title="Sair"
-            variant="danger"
-          />
+          <View style={styles.actionRow}>
+            <PrimaryButton
+              icon="+"
+              onPress={onOpenClients}
+              style={styles.headerButton}
+              title="Clientes"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenProducts}
+              style={styles.productsButton}
+              title="Produtos"
+              variant="success"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenAttendance}
+              style={styles.attendanceButton}
+              title="Atendimento"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenAgenda}
+              style={styles.headerButton}
+              title="Agenda"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenHistory}
+              style={styles.historyButton}
+              title="Histórico"
+              variant="success"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenFinance}
+              style={styles.financeButton}
+              title="Financeiro"
+            />
+            <PrimaryButton
+              icon=">"
+              onPress={onOpenStock}
+              style={styles.headerButton}
+              title="Estoque"
+            />
+            <PrimaryButton
+              icon="x"
+              onPress={onLogout}
+              style={styles.headerButton}
+              title="Sair"
+              variant="danger"
+            />
+          </View>
         </View>
 
         <View style={styles.metricsGrid}>
@@ -72,6 +134,23 @@ export function HomeScreen({ onLogout }: HomeScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  attendanceButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 168,
+  },
+  financeButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 164,
+  },
   content: {
     gap: 24,
     padding: 20,
@@ -90,11 +169,23 @@ const styles = StyleSheet.create({
   headerText: {
     gap: 8,
   },
-  logoutButton: {
+  headerButton: {
     alignSelf: "flex-start",
     height: 44,
     paddingHorizontal: 18,
-    width: 118,
+    width: 132,
+  },
+  historyButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 142,
+  },
+  productsButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 142,
   },
   metricsGrid: {
     flexDirection: "row",
