@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
+import { AppTextInput } from "../components/app-text-input";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
 import { StatusBadge } from "../components/status-badge";
@@ -12,23 +14,54 @@ import {
   type AgendaItem,
   type AgendaStatus,
 } from "../types/agenda";
+import { clientPlanLabels, type Client } from "../types/client";
+import { employeeRoleLabels, type Employee } from "../types/employee";
 
 const statusOptions: AgendaStatus[] = ["pending", "in-progress", "finished"];
 
 type AgendaScreenProps = {
   agendaItems: AgendaItem[];
+  clients: Client[];
+  employees: Employee[];
+  canDistribute: boolean;
   onBack: () => void;
+  onAddAgendaItem: (client: Client, visitDate: string) => void;
+  onAssignAgendaItem: (agendaItemId: string, employeeId: string) => void;
   onStartAttendance: (agendaItem: AgendaItem) => void;
   onUpdateStatus: (agendaItemId: string, status: AgendaStatus) => void;
 };
 
 export function AgendaScreen({
   agendaItems,
+  clients,
+  employees,
+  canDistribute,
   onBack,
+  onAddAgendaItem,
+  onAssignAgendaItem,
   onStartAttendance,
   onUpdateStatus,
 }: AgendaScreenProps) {
+  const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id ?? "");
+  const [visitDate, setVisitDate] = useState(new Date().toLocaleDateString("pt-BR"));
+  const [formMessage, setFormMessage] = useState("");
   const pendingCount = agendaItems.filter((item) => item.status !== "finished").length;
+  const selectedClient = clients.find((client) => client.id === selectedClientId);
+
+  function handleAddAgendaItem() {
+    if (!selectedClient) {
+      setFormMessage("Cadastre um cliente antes de adicionar uma piscina ao dia.");
+      return;
+    }
+
+    if (!visitDate.trim()) {
+      setFormMessage("Informe a data da visita.");
+      return;
+    }
+
+    onAddAgendaItem(selectedClient, visitDate.trim());
+    setFormMessage("Piscina adicionada ao dia.");
+  }
 
   return (
     <View style={styles.root}>
@@ -48,66 +81,180 @@ export function AgendaScreen({
           </Text>
         </AppCard>
 
+        <AppCard style={styles.addCard}>
+          <View style={styles.addHeader}>
+            <Text style={styles.summaryTitle}>Adicionar piscina ao dia</Text>
+            <Text selectable style={styles.summaryText}>
+              Inclua manualmente uma piscina na agenda sem definir horario.
+            </Text>
+          </View>
+
+          <AppTextInput
+            label="Data da visita"
+            onChangeText={setVisitDate}
+            placeholder="15/07/2026"
+            value={visitDate}
+          />
+
+          <View style={styles.clientPicker}>
+            <Text style={styles.groupLabel}>Cliente</Text>
+            {clients.length > 0 ? (
+              <View style={styles.clientOptions}>
+                {clients.map((client) => {
+                  const selected = selectedClientId === client.id;
+
+                  return (
+                    <Pressable
+                      accessibilityLabel={`Selecionar ${client.name}`}
+                      accessibilityRole="button"
+                      key={client.id}
+                      onPress={() => {
+                        setSelectedClientId(client.id);
+                        setFormMessage("");
+                      }}
+                      style={({ pressed }) => [
+                        styles.clientOption,
+                        selected && styles.clientOptionSelected,
+                        pressed && styles.clientOptionPressed,
+                      ]}
+                    >
+                      <PoolReferencePhoto style={styles.clientOptionPhoto} uri={client.referencePhotoUri} />
+                      <View style={styles.clientOptionText}>
+                        <Text selectable style={styles.clientOptionName}>
+                          {client.name}
+                        </Text>
+                        <Text selectable style={styles.clientOptionDetail}>
+                          {client.neighborhood} - {clientPlanLabels[client.plan]}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text selectable style={styles.summaryText}>
+                Nenhum cliente cadastrado.
+              </Text>
+            )}
+          </View>
+
+          {formMessage ? (
+            <Text selectable style={styles.formMessage}>
+              {formMessage}
+            </Text>
+          ) : null}
+
+          <PrimaryButton
+            icon="+"
+            onPress={handleAddAgendaItem}
+            title="Adicionar piscina ao dia"
+          />
+        </AppCard>
+
         <View style={styles.agendaList}>
-          {agendaItems.map((item) => (
-            <AppCard key={item.id} style={styles.agendaCard}>
-              <View style={styles.itemHeader}>
-                <View style={styles.itemHeaderText}>
-                  <Text selectable style={styles.clientName}>
-                    {item.clientName}
-                  </Text>
-                  <Text selectable style={styles.neighborhood}>
-                    {item.neighborhood}
-                  </Text>
+          {agendaItems.map((item) => {
+            const agendaClient = clients.find((client) => client.name === item.clientName);
+
+            return (
+              <AppCard key={item.id} style={styles.agendaCard}>
+                <View style={styles.itemHeader}>
+                  <PoolReferencePhoto uri={agendaClient?.referencePhotoUri} />
+                  <View style={styles.itemHeaderText}>
+                    <Text selectable style={styles.clientName}>
+                      {item.clientName}
+                    </Text>
+                    <Text selectable style={styles.neighborhood}>
+                      {item.neighborhood}
+                    </Text>
+                    {agendaClient?.plan ? (
+                      <Text selectable style={styles.planText}>
+                        Plano: {clientPlanLabels[agendaClient.plan]}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <StatusBadge label={agendaStatusLabels[item.status]} tone={getStatusTone(item.status)} />
                 </View>
 
-                <StatusBadge label={agendaStatusLabels[item.status]} tone={getStatusTone(item.status)} />
-              </View>
+                <Text selectable style={styles.address}>
+                  {item.address}
+                </Text>
+                <Text selectable style={styles.visitDate}>
+                  Data da visita: {item.visitDate ?? "Hoje"}
+                </Text>
+                <Text selectable style={styles.responsibleText}>
+                  Responsavel: {item.assignedEmployeeName ?? "Nao atribuido"}
+                </Text>
 
-              <Text selectable style={styles.address}>
-                {item.address}
-              </Text>
+                <View style={styles.statusGroup}>
+                  <Text style={styles.groupLabel}>Status</Text>
+                  <View style={styles.statusOptions}>
+                    {statusOptions.map((status) => {
+                      const selected = item.status === status;
 
-              <View style={styles.statusGroup}>
-                <Text style={styles.groupLabel}>Status</Text>
-                <View style={styles.statusOptions}>
-                  {statusOptions.map((status) => {
-                    const selected = item.status === status;
-
-                    return (
-                      <Pressable
-                        accessibilityLabel={`Alterar status para ${agendaStatusLabels[status]}`}
-                        accessibilityRole="button"
-                        key={status}
-                        onPress={() => onUpdateStatus(item.id, status)}
-                        style={({ pressed }) => [
-                          styles.statusOption,
-                          selected && styles.statusOptionSelected,
-                          pressed && styles.statusOptionPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.statusOptionText,
-                            selected && styles.statusOptionTextSelected,
+                      return (
+                        <Pressable
+                          accessibilityLabel={`Alterar status para ${agendaStatusLabels[status]}`}
+                          accessibilityRole="button"
+                          key={status}
+                          onPress={() => onUpdateStatus(item.id, status)}
+                          style={({ pressed }) => [
+                            styles.statusOption,
+                            selected && styles.statusOptionSelected,
+                            pressed && styles.statusOptionPressed,
                           ]}
                         >
-                          {agendaStatusLabels[status]}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                          <Text
+                            style={[
+                              styles.statusOptionText,
+                              selected && styles.statusOptionTextSelected,
+                            ]}
+                          >
+                            {agendaStatusLabels[status]}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
 
-              <PrimaryButton
-                onPress={() => onStartAttendance(item)}
-                style={styles.startButton}
-                title="Iniciar atendimento"
-                variant={item.status === "finished" ? "primary" : "success"}
-              />
-            </AppCard>
-          ))}
+                {canDistribute ? (
+                  <View style={styles.distributionGroup}>
+                    <Text style={styles.groupLabel}>Distribuir piscinas</Text>
+                    <View style={styles.employeeOptions}>
+                      {employees.map((employee) => {
+                        const selected = item.assignedEmployeeId === employee.id;
+
+                        return (
+                          <Pressable
+                            accessibilityLabel={`Atribuir para ${employee.name}`}
+                            accessibilityRole="button"
+                            key={employee.id}
+                            onPress={() => onAssignAgendaItem(item.id, employee.id)}
+                            style={({ pressed }) => [
+                              styles.employeeOption,
+                              selected && styles.employeeOptionSelected,
+                              pressed && styles.employeeOptionPressed,
+                            ]}
+                          >
+                            <Text style={styles.employeeOptionText}>{employee.name}</Text>
+                            <Text style={styles.employeeRoleText}>{employeeRoleLabels[employee.role]}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+
+                <PrimaryButton
+                  onPress={() => onStartAttendance(item)}
+                  style={styles.startButton}
+                  title="Iniciar atendimento"
+                  variant={item.status === "finished" ? "primary" : "success"}
+                />
+              </AppCard>
+            );
+          })}
         </View>
       </ScrollView>
     </View>
@@ -127,6 +274,12 @@ function getStatusTone(status: AgendaStatus) {
 }
 
 const styles = StyleSheet.create({
+  addCard: {
+    gap: 16,
+  },
+  addHeader: {
+    gap: 8,
+  },
   address: {
     color: colors.textSecondary,
     fontSize: 15,
@@ -144,6 +297,49 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     lineHeight: 25,
   },
+  clientOption: {
+    alignItems: "center",
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 10,
+  },
+  clientOptionDetail: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  clientOptionName: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  clientOptionPhoto: {
+    height: 54,
+    width: 54,
+  },
+  clientOptionPressed: {
+    opacity: 0.86,
+  },
+  clientOptionSelected: {
+    backgroundColor: "rgba(45, 125, 255, 0.18)",
+    borderColor: colors.primaryLight,
+  },
+  clientOptionText: {
+    flex: 1,
+    gap: 3,
+  },
+  clientOptions: {
+    gap: 10,
+  },
+  clientPicker: {
+    gap: 10,
+  },
   content: {
     gap: 24,
     padding: 20,
@@ -154,6 +350,48 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+  formMessage: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  distributionGroup: {
+    gap: 10,
+  },
+  employeeOption: {
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 3,
+    minWidth: 138,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  employeeOptionPressed: {
+    opacity: 0.86,
+  },
+  employeeOptionSelected: {
+    backgroundColor: "rgba(21, 101, 255, 0.28)",
+    borderColor: colors.primaryLight,
+  },
+  employeeOptionText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  employeeOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  employeeRoleText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "800",
   },
   itemHeader: {
     alignItems: "flex-start",
@@ -169,6 +407,18 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     fontWeight: "800",
+  },
+  planText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  responsibleText: {
+    color: colors.primaryLight,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
   },
   root: {
     backgroundColor: colors.background,
@@ -223,5 +473,11 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 18,
     fontWeight: "900",
+  },
+  visitDate: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
   },
 });

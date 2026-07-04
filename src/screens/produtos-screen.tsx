@@ -12,13 +12,16 @@ import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
 import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
+import type { Client } from "../types/client";
 import type { ProductRequest, ProductRequestItem } from "../types/product-request";
 
 type ProdutosScreenProps = {
+  clients: Client[];
   onBack: () => void;
   onConfirmDelivery: (requestId: string, itemId: string, deliveryPhotoUri: string) => void;
   productRequests: ProductRequest[];
@@ -40,6 +43,7 @@ type ApprovedItemGroup = {
 export function ProdutosScreen({
   onBack,
   onConfirmDelivery,
+  clients,
   productRequests,
 }: ProdutosScreenProps) {
   const [deliveryTarget, setDeliveryTarget] = useState<{
@@ -192,6 +196,9 @@ export function ProdutosScreen({
                   return (
                     <AppCard key={approvedItem.item.id} style={styles.productCard}>
                       <View style={styles.productHeader}>
+                        <PoolReferencePhoto
+                          uri={clients.find((client) => client.name === approvedItem.clientName)?.referencePhotoUri}
+                        />
                         <View style={styles.clientInfo}>
                           <Text selectable style={styles.clientName}>
                             {approvedItem.clientName}

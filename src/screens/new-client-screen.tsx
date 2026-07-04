@@ -8,8 +8,10 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import {
@@ -22,7 +24,7 @@ import {
   type WeekDay,
 } from "../types/client";
 
-const planOptions: ClientPlan[] = ["monthly", "biweekly"];
+const planOptions: ClientPlan[] = ["monthly", "biweekly", "weekly", "daily", "one-time"];
 const frequencyOptions: ClientFrequency[] = ["once", "twice", "three-times", "daily", "custom"];
 const weekDayOptions: WeekDay[] = [
   "monday",
@@ -54,6 +56,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
   const [poolType, setPoolType] = useState("");
   const [liters, setLiters] = useState("");
   const [notes, setNotes] = useState("");
+  const [referencePhotoUri, setReferencePhotoUri] = useState("");
   const [monthlyValue, setMonthlyValue] = useState("");
   const [dueDay, setDueDay] = useState("");
   const [plan, setPlan] = useState<ClientPlan>("monthly");
@@ -150,6 +153,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
       neighborhood: neighborhood.trim(),
       address: address.trim(),
       poolType: poolType.trim(),
+      referencePhotoUri,
       liters: parsedLiters,
       notes: notes.trim(),
       plan,
@@ -158,6 +162,36 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
       valorMensal: parsedMonthlyValue,
       diaVencimento: parsedDueDay,
     });
+  }
+
+  async function pickReferencePhoto() {
+    setError("");
+
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permissionResult.granted) {
+      setError("Permita o acesso as imagens para adicionar a foto de referencia.");
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: false,
+      mediaTypes: ["images"],
+      quality: 1,
+    });
+
+    if (pickerResult.canceled) {
+      return;
+    }
+
+    const selectedPhotoUri = pickerResult.assets[0]?.uri;
+
+    if (!selectedPhotoUri) {
+      setError("Nao foi possivel carregar a imagem selecionada.");
+      return;
+    }
+
+    setReferencePhotoUri(selectedPhotoUri);
   }
 
   return (
@@ -182,6 +216,19 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
             style={styles.backButton}
             title="Voltar"
             variant="danger"
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Foto de Referencia da Piscina</Text>
+          <Text selectable style={styles.helperText}>
+            Essa foto sera usada para identificar esta piscina em todo o aplicativo.
+          </Text>
+          <PoolReferencePhoto size="banner" uri={referencePhotoUri} />
+          <PrimaryButton
+            onPress={pickReferencePhoto}
+            style={styles.photoButton}
+            title={referencePhotoUri ? "Alterar foto" : "Selecionar imagem"}
           />
         </View>
 
@@ -250,7 +297,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.groupTitle}>Plano</Text>
+          <Text style={styles.groupTitle}>Plano de atendimento</Text>
           <View style={styles.optionGrid}>
             {planOptions.map((option) => (
               <OptionButton
@@ -432,6 +479,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
+  helperText: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
   header: {
     alignItems: "flex-start",
     gap: 18,
@@ -484,6 +536,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: "800",
+  },
+  photoButton: {
+    height: 50,
   },
   radio: {
     borderRadius: 999,

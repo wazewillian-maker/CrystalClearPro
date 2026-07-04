@@ -3,10 +3,11 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
-import type { Client } from "../types/client";
+import { clientPlanLabels, type Client } from "../types/client";
 import type { PaymentStatuses } from "../types/finance";
 
 type FinanceiroScreenProps = {
@@ -74,6 +75,7 @@ export function FinanceiroScreen({
               return (
                 <AppCard key={client.id} style={styles.chargeCard} tone={isPaid ? "success" : "default"}>
                   <View style={styles.chargeHeader}>
+                    <PoolReferencePhoto uri={client.referencePhotoUri} />
                     <View style={styles.clientInfo}>
                       <Text selectable style={styles.clientName}>
                         {client.name}
@@ -87,6 +89,7 @@ export function FinanceiroScreen({
                   </View>
 
                   <View style={styles.detailGroup}>
+                    <DetailRow label="Plano de atendimento" value={clientPlanLabels[client.plan]} />
                     <DetailRow label="Valor mensal" value={monthlyValue} />
                     <DetailRow label="Dia de vencimento" value={dueDay} />
                   </View>

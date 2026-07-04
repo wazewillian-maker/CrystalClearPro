@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
 import colors from "../theme/colors";
@@ -36,6 +37,7 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.header}>
+          <PoolReferencePhoto size="hero" uri={client.referencePhotoUri} />
           <ScreenHeader
             eyebrow="Ficha do cliente"
             onBack={onBack}
@@ -43,6 +45,24 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
             title={client.name}
           />
           <View style={styles.actionRow}>
+            <PrimaryButton
+              onPress={() => undefined}
+              style={styles.quickButton}
+              title="Ligar"
+              variant="secondary"
+            />
+            <PrimaryButton
+              onPress={() => undefined}
+              style={styles.quickButton}
+              title="WhatsApp"
+              variant="secondary"
+            />
+            <PrimaryButton
+              onPress={() => undefined}
+              style={styles.addressButton}
+              title="Abrir endereco"
+              variant="secondary"
+            />
             <PrimaryButton
               onPress={onEdit}
               style={styles.editButton}
@@ -54,6 +74,11 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
               style={styles.deleteButton}
               title="Excluir cliente"
               variant="danger"
+            />
+            <PrimaryButton
+              onPress={onEdit}
+              style={styles.photoButton}
+              title="Atualizar Foto de Referencia"
             />
           </View>
         </View>
@@ -123,6 +148,12 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
+  addressButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 168,
+  },
   content: {
     gap: 24,
     padding: 20,
@@ -153,6 +184,18 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 18,
     width: 154,
+  },
+  photoButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 248,
+  },
+  quickButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 132,
   },
   header: {
     alignItems: "flex-start",

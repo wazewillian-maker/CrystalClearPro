@@ -24,9 +24,17 @@ type PrimaryButtonProps = {
 const variantColors = {
   danger: colors.danger,
   primary: colors.primary,
-  secondary: colors.cardElevated,
+  secondary: "rgba(10, 27, 46, 0.72)",
   success: colors.success,
   warning: colors.warning,
+};
+
+const variantBorders = {
+  danger: "rgba(255, 255, 255, 0.18)",
+  primary: "rgba(0, 212, 255, 0.42)",
+  secondary: "rgba(0, 212, 255, 0.32)",
+  success: "rgba(255, 255, 255, 0.18)",
+  warning: "rgba(255, 255, 255, 0.18)",
 };
 
 export function PrimaryButton({
@@ -43,17 +51,25 @@ export function PrimaryButton({
       accessibilityRole="button"
       disabled={loading}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: variantColors[variant],
-          opacity: pressed ? 0.88 : 1,
-          transform: [{ translateY: pressed ? 1 : 0 }],
-        },
-        loading && styles.disabled,
-        style,
-      ]}
+      style={(state) => {
+        const hovered = "hovered" in state && Boolean(state.hovered);
+
+        return [
+          styles.button,
+          {
+            backgroundColor: variantColors[variant],
+            borderColor: variantBorders[variant],
+          },
+          variant === "secondary" && styles.secondaryButton,
+          hovered && styles.hovered,
+          state.pressed && styles.pressed,
+          loading && styles.disabled,
+          style,
+        ];
+      }}
     >
+      <View pointerEvents="none" style={styles.glow} />
+      <View pointerEvents="none" style={styles.shine} />
       {loading ? (
         <ActivityIndicator color={colors.white} />
       ) : (
@@ -69,14 +85,15 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     alignItems: "center",
-    borderColor: "rgba(255, 255, 255, 0.14)",
-    borderRadius: 12,
+    borderRadius: 8,
     borderCurve: "continuous",
     borderWidth: 1,
-    boxShadow: "0 14px 28px rgba(0, 0, 0, 0.24)",
-    height: 56,
+    boxShadow: "0 10px 22px rgba(21, 101, 255, 0.24)",
+    height: 48,
     justifyContent: "center",
-    paddingHorizontal: 16,
+    overflow: "hidden",
+    paddingHorizontal: 20,
+    position: "relative",
     width: "100%",
   },
   content: {
@@ -84,18 +101,50 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     justifyContent: "center",
+    position: "relative",
+    zIndex: 2,
   },
   disabled: {
     opacity: 0.72,
+  },
+  glow: {
+    backgroundColor: "rgba(0, 212, 255, 0.22)",
+    borderRadius: 32,
+    height: 42,
+    position: "absolute",
+    right: -18,
+    top: -26,
+    width: 92,
+  },
+  hovered: {
+    boxShadow: "0 14px 28px rgba(21, 101, 255, 0.34)",
+    transform: [{ translateY: -1 }, { scale: 1.01 }],
   },
   icon: {
     color: colors.white,
     fontSize: 18,
     fontWeight: "800",
   },
+  pressed: {
+    boxShadow: "0 10px 22px rgba(0, 0, 0, 0.28)",
+    opacity: 0.9,
+    transform: [{ translateY: 1 }, { scale: 0.985 }],
+  },
+  secondaryButton: {
+    boxShadow: "0 12px 24px rgba(0, 0, 0, 0.24)",
+  },
+  shine: {
+    backgroundColor: "rgba(255, 255, 255, 0.13)",
+    height: "48%",
+    left: 1,
+    position: "absolute",
+    right: 1,
+    top: 1,
+  },
   text: {
     color: colors.white,
-    fontSize: 16,
+    fontFamily: "Inter",
+    fontSize: 14,
     fontWeight: "900",
   },
 });

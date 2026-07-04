@@ -12,10 +12,11 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
-import type { Client } from "../types/client";
+import { clientPlanLabels, type Client } from "../types/client";
 import type { MissingProductItem } from "../types/product-request";
 
 type ChecklistItem = {
@@ -38,6 +39,7 @@ type AtendimentoScreenProps = {
   onBack: () => void;
   onSaveAttendance: (attendance: AttendanceRecord) => void;
   initialClientName?: string;
+  responsibleName?: string;
 };
 
 export function AtendimentoScreen({
@@ -45,6 +47,7 @@ export function AtendimentoScreen({
   onBack,
   onSaveAttendance,
   initialClientName,
+  responsibleName,
 }: AtendimentoScreenProps) {
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
@@ -61,6 +64,7 @@ export function AtendimentoScreen({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
+  const selectedClient = clients.find((client) => client.name === clientName);
 
   useEffect(() => {
     return () => {
@@ -231,6 +235,23 @@ export function AtendimentoScreen({
             </Text>
           </View>
         ) : null}
+
+        <View style={styles.card}>
+          <PoolReferencePhoto size="banner" uri={selectedClient?.referencePhotoUri} />
+          <Text selectable style={styles.clientReferenceTitle}>
+            {clientName || "Piscina em atendimento"}
+          </Text>
+          <Text selectable style={styles.responsibleText}>
+            Responsavel: {responsibleName ?? "Nao atribuido"}
+          </Text>
+          <Text selectable style={styles.helperText}>
+            {selectedClient
+              ? `${selectedClient.poolType || "Tipo nao informado"} - ${
+                  typeof selectedClient.liters === "number" ? `${selectedClient.liters} litros` : "volume nao informado"
+                } - ${selectedClient.city} - Plano: ${clientPlanLabels[selectedClient.plan]}`
+              : "Foto de referencia usada apenas para identificar a piscina."}
+          </Text>
+        </View>
 
         <View style={styles.card}>
           {clients.length > 0 ? (
@@ -521,6 +542,11 @@ const styles = StyleSheet.create({
   clientPicker: {
     gap: 8,
   },
+  clientReferenceTitle: {
+    color: colors.white,
+    fontSize: 20,
+    fontWeight: "900",
+  },
   clientPickerButton: {
     height: 44,
   },
@@ -699,6 +725,12 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  responsibleText: {
+    color: colors.primaryLight,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
   },
   removeMissingButton: {
     backgroundColor: "rgba(231, 76, 60, 0.22)",

@@ -7,16 +7,19 @@ import { ClienteAreaScreen } from "./src/screens/ClienteAreaScreen";
 import { ClientsScreen } from "./src/screens/clients-screen";
 import { ClientDetailScreen } from "./src/screens/client-detail-screen";
 import { EditClientScreen } from "./src/screens/edit-client-screen";
+import { EquipeScreen } from "./src/screens/EquipeScreen";
 import { FinanceiroScreen } from "./src/screens/FinanceiroScreen";
 import { HistoricoScreen } from "./src/screens/HistoricoScreen";
 import { HomeScreen } from "./src/screens/home-screen";
 import { LoginScreen, type TestUserRole } from "./src/screens/login-screen";
 import { NewClientScreen } from "./src/screens/new-client-screen";
 import { ProdutosScreen } from "./src/screens/produtos-screen";
+import { SplashScreen } from "./src/screens/splash-screen";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
 import type { Client, ClientFormData } from "./src/types/client";
+import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
 import {
   initialProductRequests,
@@ -32,6 +35,12 @@ const initialAgendaItems: AgendaItem[] = [
     clientName: "Condominio Lago Azul",
     neighborhood: "Jardim Europa",
     address: "Rua das Aguas, 120",
+    visitDate: "Hoje",
+    data: "Hoje",
+    assignedEmployeeId: "owner-willian",
+    assignedEmployeeName: "Willian/Dono",
+    funcionarioId: "owner-willian",
+    origem: "Automatica",
     status: "pending",
   },
   {
@@ -39,6 +48,12 @@ const initialAgendaItems: AgendaItem[] = [
     clientName: "Marina Costa",
     neighborhood: "Vila Mariana",
     address: "Avenida Primavera, 88",
+    visitDate: "Hoje",
+    data: "Hoje",
+    assignedEmployeeId: "partner-demo",
+    assignedEmployeeName: "Socio Demo",
+    funcionarioId: "partner-demo",
+    origem: "Automatica",
     status: "pending",
   },
   {
@@ -46,12 +61,46 @@ const initialAgendaItems: AgendaItem[] = [
     clientName: "Academia Aqua Fit",
     neighborhood: "Centro",
     address: "Rua do Mercado, 40",
+    visitDate: "Hoje",
+    data: "Hoje",
+    assignedEmployeeId: "staff-demo",
+    assignedEmployeeName: "Funcionario Demo",
+    funcionarioId: "staff-demo",
+    origem: "Automatica",
     status: "in-progress",
+  },
+];
+
+const initialEmployees: Employee[] = [
+  {
+    email: "willian@crystalclear.com",
+    id: "owner-willian",
+    name: "Willian/Dono",
+    phone: "(11) 99999-0000",
+    role: "owner",
+    status: "active",
+  },
+  {
+    email: "socio@crystalclear.com",
+    id: "partner-demo",
+    name: "Socio Demo",
+    phone: "(11) 98888-0000",
+    role: "partner",
+    status: "active",
+  },
+  {
+    email: "funcionario@crystalclear.com",
+    id: "staff-demo",
+    name: "Funcionario Demo",
+    phone: "(11) 97777-0000",
+    role: "staff",
+    status: "active",
   },
 ];
 
 type AppScreen =
   | "login"
+  | "splash"
   | "home"
   | "clients"
   | "new-client"
@@ -61,46 +110,90 @@ type AppScreen =
   | "attendance"
   | "history"
   | "agenda"
+  | "team"
   | "finance"
   | "client-area";
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>("login");
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>("splash");
   const [activeRole, setActiveRole] = useState<TestUserRole>("owner");
   const [clients, setClients] = useState<Client[]>([]);
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
+  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatuses>({});
   const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
   const [selectedAgendaItemId, setSelectedAgendaItemId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const selectedClient = clients.find((client) => client.id === selectedClientId);
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
-  const productsPendingCount = productRequests.reduce(
+  const activeEmployee =
+    activeRole === "owner"
+      ? employees.find((employee) => employee.role === "owner") ?? employees[0]
+      : employees.find((employee) => employee.status === "active" && employee.role !== "owner") ?? employees[0];
+  const visibleAgendaItems =
+    activeRole === "staff" && activeEmployee
+      ? agendaItems.filter((item) => item.assignedEmployeeId === activeEmployee.id)
+      : agendaItems;
+  const visibleAttendances =
+    activeRole === "staff" && activeEmployee
+      ? attendances.filter((attendance) => attendance.employeeId === activeEmployee.id)
+      : attendances;
+  const visibleClientNames = new Set(visibleAgendaItems.map((item) => item.clientName));
+  const visibleProductRequests =
+    activeRole === "staff"
+      ? productRequests.filter((request) => visibleClientNames.has(request.clientName))
+      : productRequests;
+  const productsPendingCount = visibleProductRequests.reduce(
     (total, request) =>
       total + request.items.filter((item) => item.status === "approved").length,
     0,
   );
-  const pendingProductApprovalCount = productRequests.filter(
+  const pendingProductApprovalCount = visibleProductRequests.filter(
     (request) => request.status === "pending-approval",
   ).length;
   const pendingPaymentCount = clients.filter(
     (client) => hasMonthlyValue(client) && paymentStatuses[client.id] !== "paid",
   ).length;
+  const completionSummary = {
+    approvedProducts: visibleProductRequests.reduce(
+      (total, request) =>
+        total +
+        request.items.filter((item) => item.status === "approved" || item.status === "delivered").length,
+      0,
+    ),
+    completedAttendances: visibleAttendances.length,
+    registeredPhotos: visibleAttendances.reduce(
+      (total, attendance) =>
+        total + (attendance.beforePhotoUri ? 1 : 0) + (attendance.afterPhotoUri ? 1 : 0),
+      0,
+    ),
+    requestedProducts: visibleProductRequests.reduce((total, request) => total + request.items.length, 0),
+  };
+  const employeeSummaries = employees.map((employee) => {
+    const assignedItems = agendaItems.filter((item) => item.assignedEmployeeId === employee.id);
+
+    return {
+      assigned: assignedItems.length,
+      completed: assignedItems.filter((item) => item.status === "finished").length,
+      employeeName: employee.name,
+      pending: assignedItems.filter((item) => item.status !== "finished").length,
+    };
+  });
   const dashboardMetrics = [
     {
       helper: "Itens planejados para hoje",
       id: "agenda",
       label: "Piscinas do dia",
       tone: colors.primary,
-      value: String(agendaItems.length),
+      value: String(visibleAgendaItems.length),
     },
     {
       helper: "Atendimentos salvos no historico",
       id: "completed",
       label: "Atendimentos concluidos",
       tone: colors.success,
-      value: String(attendances.length),
+      value: String(visibleAttendances.length),
     },
     {
       helper: "Itens aprovados ainda nao entregues",
@@ -129,7 +222,10 @@ export default function App() {
       ? dashboardMetrics.filter((metric) => metric.id !== "payments")
       : dashboardMetrics;
   const canAccessFinance = activeRole === "owner";
-  const profileLabel = getProfileLabel(activeRole);
+  const profileLabel =
+    activeRole === "staff" && activeEmployee
+      ? `${getProfileLabel(activeRole)} - ${activeEmployee.name}`
+      : getProfileLabel(activeRole);
   const testClient = clients[0] ?? fallbackTestClient;
   const testClientPaymentStatus = paymentStatuses[testClient.id] ?? "pending";
 
@@ -150,6 +246,33 @@ export default function App() {
 
     setClients((currentClients) => [newClient, ...currentClients]);
     setCurrentScreen("clients");
+  }
+
+  function handleCreateEmployee(employeeData: EmployeeFormData) {
+    const newEmployee: Employee = {
+      id: String(Date.now()),
+      ...employeeData,
+    };
+
+    setEmployees((currentEmployees) => [...currentEmployees, newEmployee]);
+  }
+
+  function handleUpdateEmployee(employeeId: string, employeeData: EmployeeFormData) {
+    setEmployees((currentEmployees) =>
+      currentEmployees.map((employee) =>
+        employee.id === employeeId ? { id: employee.id, ...employeeData } : employee,
+      ),
+    );
+  }
+
+  function handleToggleEmployeeStatus(employeeId: string) {
+    setEmployees((currentEmployees) =>
+      currentEmployees.map((employee) =>
+        employee.id === employeeId
+          ? { ...employee, status: employee.status === "active" ? "inactive" : "active" }
+          : employee,
+      ),
+    );
   }
 
   function handleOpenClient(clientId: string) {
@@ -183,21 +306,27 @@ export default function App() {
   }
 
   function handleSaveAttendance(attendance: AttendanceRecord) {
-    setAttendances((currentAttendances) => [attendance, ...currentAttendances]);
+    const attendanceWithEmployee: AttendanceRecord = {
+      ...attendance,
+      employeeId: selectedAgendaItem?.assignedEmployeeId ?? activeEmployee?.id,
+      employeeName: selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name,
+    };
 
-    if (attendance.missingProducts.length > 0) {
+    setAttendances((currentAttendances) => [attendanceWithEmployee, ...currentAttendances]);
+
+    if (attendanceWithEmployee.missingProducts.length > 0) {
       const selectedClientForAttendance = clients.find(
-        (client) => client.name === attendance.clientName,
+        (client) => client.name === attendanceWithEmployee.clientName,
       );
 
       const productRequest: ProductRequest = {
-        id: `${attendance.id}-products`,
-        attendanceId: attendance.id,
-        clientName: attendance.clientName,
+        id: `${attendanceWithEmployee.id}-products`,
+        attendanceId: attendanceWithEmployee.id,
+        clientName: attendanceWithEmployee.clientName,
         neighborhood: selectedClientForAttendance?.neighborhood ?? "Nao informado",
-        nextVisitDate: attendance.attendanceDate,
+        nextVisitDate: attendanceWithEmployee.attendanceDate,
         status: "pending-approval",
-        items: attendance.missingProducts.map((item) => ({
+        items: attendanceWithEmployee.missingProducts.map((item) => ({
           ...item,
           status: "pending",
         })),
@@ -215,6 +344,114 @@ export default function App() {
     setAgendaItems((currentItems) =>
       currentItems.map((item) => (item.id === agendaItemId ? { ...item, status } : item)),
     );
+  }
+
+  function handleAddAgendaItem(client: Client, visitDate: string) {
+    const defaultEmployee = activeEmployee ?? employees[0];
+    const agendaItem: AgendaItem = {
+      address: client.address,
+      clientId: client.id,
+      clientName: client.name,
+      data: visitDate,
+      id: String(Date.now()),
+      neighborhood: client.neighborhood,
+      assignedEmployeeId: defaultEmployee?.id,
+      assignedEmployeeName: defaultEmployee?.name,
+      funcionarioId: defaultEmployee?.id,
+      origem: "Manual",
+      status: "pending",
+      visitDate,
+    };
+
+    setAgendaItems((currentItems) => [...currentItems, agendaItem]);
+  }
+
+  function handleAssignAgendaItem(agendaItemId: string, employeeId: string) {
+    const employee = employees.find((currentEmployee) => currentEmployee.id === employeeId);
+
+    if (!employee) {
+      return;
+    }
+
+    setAgendaItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === agendaItemId
+          ? {
+              ...item,
+              assignedEmployeeId: employee.id,
+              assignedEmployeeName: employee.name,
+              funcionarioId: employee.id,
+            }
+          : item,
+      ),
+    );
+  }
+
+  function handleAssignClientsToEmployee(employeeId: string, clientIds: string[]) {
+    const employee = employees.find((currentEmployee) => currentEmployee.id === employeeId);
+
+    if (!employee) {
+      return;
+    }
+
+    const todayLabel = new Date().toLocaleDateString("pt-BR");
+
+    setAgendaItems((currentItems) => {
+      const selectedClientIds = new Set(clientIds);
+      const nextItems = currentItems.map((item) => {
+        const currentClient = clients.find((client) => client.name === item.clientName);
+        const itemClientId = item.clientId ?? currentClient?.id;
+
+        if (item.assignedEmployeeId === employee.id && itemClientId && !selectedClientIds.has(itemClientId)) {
+          return {
+            ...item,
+            assignedEmployeeId: undefined,
+            assignedEmployeeName: undefined,
+            funcionarioId: undefined,
+          };
+        }
+
+        return item;
+      });
+
+      clientIds.forEach((clientId) => {
+        const client = clients.find((currentClient) => currentClient.id === clientId);
+
+        if (!client) {
+          return;
+        }
+
+        const existingIndex = nextItems.findIndex(
+          (item) => item.clientId === client.id || item.clientName === client.name,
+        );
+
+        const assignedItem: AgendaItem = {
+          address: client.address,
+          clientId: client.id,
+          clientName: client.name,
+          data: todayLabel,
+          id: existingIndex >= 0 ? nextItems[existingIndex].id : `${Date.now()}-${client.id}`,
+          neighborhood: client.neighborhood,
+          assignedEmployeeId: employee.id,
+          assignedEmployeeName: employee.name,
+          funcionarioId: employee.id,
+          origem: "Manual",
+          status: "pending",
+          visitDate: todayLabel,
+        };
+
+        if (existingIndex >= 0) {
+          nextItems[existingIndex] = {
+            ...nextItems[existingIndex],
+            ...assignedItem,
+          };
+        } else {
+          nextItems.push(assignedItem);
+        }
+      });
+
+      return nextItems;
+    });
   }
 
   function handleStartAgendaAttendance(agendaItem: AgendaItem) {
@@ -293,15 +530,23 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      {currentScreen === "splash" ? (
+        <SplashScreen onFinish={() => setCurrentScreen("login")} />
+      ) : null}
+
       {currentScreen === "login" ? (
         <LoginScreen onLogin={handleLogin} />
       ) : null}
 
       {currentScreen === "home" ? (
         <HomeScreen
-          agendaItems={agendaItems}
+          agendaItems={visibleAgendaItems}
           canAccessFinance={canAccessFinance}
+          clients={clients}
+          completionSummary={completionSummary}
           dashboardMetrics={visibleDashboardMetrics}
+          employeeSummaries={activeRole === "owner" ? employeeSummaries : []}
+          canManageTeam={activeRole === "owner"}
           onOpenClients={() => setCurrentScreen("clients")}
           onOpenProducts={() => setCurrentScreen("products")}
           onOpenAttendance={handleOpenStandaloneAttendance}
@@ -309,6 +554,8 @@ export default function App() {
           onOpenAgenda={() => setCurrentScreen("agenda")}
           onOpenFinance={() => setCurrentScreen("finance")}
           onOpenClientArea={() => setCurrentScreen("client-area")}
+          onOpenTeam={() => setCurrentScreen("team")}
+          onStartAttendance={handleStartAgendaAttendance}
           onSwitchProfile={handleSwitchProfile}
           onLogout={() => setCurrentScreen("login")}
           profileLabel={profileLabel}
@@ -350,9 +597,10 @@ export default function App() {
 
       {currentScreen === "products" ? (
         <ProdutosScreen
+          clients={clients}
           onBack={() => setCurrentScreen("home")}
           onConfirmDelivery={handleConfirmProductDelivery}
-          productRequests={productRequests}
+          productRequests={visibleProductRequests}
         />
       ) : null}
 
@@ -362,22 +610,42 @@ export default function App() {
           onBack={() => setCurrentScreen("home")}
           onSaveAttendance={handleSaveAttendance}
           initialClientName={selectedAgendaItem?.clientName}
+          responsibleName={selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name}
         />
       ) : null}
 
       {currentScreen === "history" ? (
         <HistoricoScreen
-          attendances={attendances}
+          attendances={visibleAttendances}
+          clients={clients}
           onBack={() => setCurrentScreen("home")}
         />
       ) : null}
 
       {currentScreen === "agenda" ? (
         <AgendaScreen
-          agendaItems={agendaItems}
+          agendaItems={visibleAgendaItems}
+          clients={clients}
+          employees={employees.filter((employee) => employee.status === "active")}
           onBack={() => setCurrentScreen("home")}
+          onAddAgendaItem={handleAddAgendaItem}
+          onAssignAgendaItem={handleAssignAgendaItem}
+          canDistribute={activeRole === "owner"}
           onStartAttendance={handleStartAgendaAttendance}
           onUpdateStatus={handleUpdateAgendaStatus}
+        />
+      ) : null}
+
+      {currentScreen === "team" ? (
+        <EquipeScreen
+          agendaItems={agendaItems}
+          clients={clients}
+          employees={employees}
+          onBack={() => setCurrentScreen("home")}
+          onAssignClientsToEmployee={handleAssignClientsToEmployee}
+          onCreateEmployee={handleCreateEmployee}
+          onToggleEmployeeStatus={handleToggleEmployeeStatus}
+          onUpdateEmployee={handleUpdateEmployee}
         />
       ) : null}
 

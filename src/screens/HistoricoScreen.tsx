@@ -2,16 +2,19 @@ import React, { useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
+import type { Client } from "../types/client";
 
 type HistoricoScreenProps = {
   attendances: AttendanceRecord[];
+  clients: Client[];
   onBack: () => void;
 };
 
-export function HistoricoScreen({ attendances, onBack }: HistoricoScreenProps) {
+export function HistoricoScreen({ attendances, clients, onBack }: HistoricoScreenProps) {
   const [selectedAttendanceId, setSelectedAttendanceId] = useState<string | null>(null);
   const selectedAttendance = attendances.find(
     (attendance) => attendance.id === selectedAttendanceId,
@@ -39,7 +42,10 @@ export function HistoricoScreen({ attendances, onBack }: HistoricoScreenProps) {
         </View>
 
         {selectedAttendance ? (
-          <AttendanceDetail attendance={selectedAttendance} />
+          <AttendanceDetail
+            attendance={selectedAttendance}
+            client={clients.find((client) => client.name === selectedAttendance.clientName)}
+          />
         ) : attendances.length > 0 ? (
           <View style={styles.attendanceList}>
             {attendances.map((attendance) => (
@@ -51,6 +57,9 @@ export function HistoricoScreen({ attendances, onBack }: HistoricoScreenProps) {
                 style={({ pressed }) => [styles.attendanceCard, pressed && styles.cardPressed]}
               >
                 <View style={styles.attendanceHeader}>
+                  <PoolReferencePhoto
+                    uri={clients.find((client) => client.name === attendance.clientName)?.referencePhotoUri}
+                  />
                   <View style={styles.attendanceHeaderText}>
                     <Text selectable style={styles.clientName}>
                       {attendance.clientName}
@@ -68,6 +77,11 @@ export function HistoricoScreen({ attendances, onBack }: HistoricoScreenProps) {
                 <Text selectable style={styles.summaryText}>
                   Produtos: {attendance.productsUsed || "Sem produtos registrados"}
                 </Text>
+                {attendance.employeeName ? (
+                  <Text selectable style={styles.summaryText}>
+                    Atendido por: {attendance.employeeName}
+                  </Text>
+                ) : null}
               </Pressable>
             ))}
           </View>
@@ -85,16 +99,19 @@ export function HistoricoScreen({ attendances, onBack }: HistoricoScreenProps) {
 
 type AttendanceDetailProps = {
   attendance: AttendanceRecord;
+  client?: Client;
 };
 
-function AttendanceDetail({ attendance }: AttendanceDetailProps) {
+function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
   return (
     <View style={styles.detailContent}>
+      <PoolReferencePhoto size="banner" uri={client?.referencePhotoUri} />
       <View style={styles.attendanceCard}>
         <Text selectable style={styles.clientName}>
           {attendance.clientName}
         </Text>
         <DetailRow label="Data do atendimento" value={attendance.attendanceDate} />
+        <DetailRow label="Atendido por" value={attendance.employeeName ?? "Nao informado"} />
         <DetailRow
           label="Checklist realizado"
           value={

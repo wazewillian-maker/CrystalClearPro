@@ -10,11 +10,13 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { BrandFooter, BrandLogo } from "../components/brand";
 import { PrimaryButton } from "../components/primary-button";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { StatusBadge, type StatusTone } from "../components/status-badge";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
-import type { Client } from "../types/client";
+import { clientPlanLabels, type Client } from "../types/client";
 import type { PaymentStatus } from "../types/finance";
 import type {
   ProductRequest,
@@ -112,6 +114,8 @@ export function ClienteAreaScreen({
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.header}>
+          <BrandLogo showSubtitle size="small" />
+          <PoolReferencePhoto size="banner" uri={client.referencePhotoUri} />
           <View style={styles.headerText}>
             <Text style={styles.eyebrow}>Area do Cliente</Text>
             <Text selectable style={styles.title}>
@@ -142,6 +146,7 @@ export function ClienteAreaScreen({
           <InfoTile label="Ultima limpeza" value={latestAttendance ? "Concluida" : "Sem registro"} />
           <InfoTile label="Data da ultima limpeza" value={latestAttendance?.attendanceDate ?? "Nao disponivel"} />
           <InfoTile label="Proxima visita" value={nextVisitDate} />
+          <InfoTile label="Plano" value={clientPlanLabels[client.plan]} />
           <InfoTile label="Avisos importantes" value={pendingProducts.length > 0 ? "Produtos aguardando aprovacao" : "Nenhum aviso pendente"} />
         </View>
 
@@ -150,6 +155,7 @@ export function ClienteAreaScreen({
             <View style={styles.card}>
               <DetailRow label="Status" value="Limpeza concluida" />
               <DetailRow label="Data" value={latestAttendance.attendanceDate} />
+              <DetailRow label="Atendido por" value={latestAttendance.employeeName ?? "Nao informado"} />
               <DetailRow
                 label="Checklist realizado"
                 value={
@@ -260,6 +266,7 @@ export function ClienteAreaScreen({
           {selectedAttendance ? (
             <AttendanceDetail
               attendance={selectedAttendance}
+              client={client}
               onBack={() => setSelectedAttendanceId(null)}
             />
           ) : clientAttendances.length > 0 ? (
@@ -298,6 +305,7 @@ export function ClienteAreaScreen({
           <View style={styles.card}>
             <DetailRow label="Valor mensal" value={formatCurrency(client.valorMensal)} />
             <DetailRow label="Dia de vencimento" value={String(client.diaVencimento)} />
+            <DetailRow label="Plano de atendimento" value={clientPlanLabels[client.plan]} />
             <DetailRow label="Status" value={paymentStatus === "paid" ? "Pago" : "Pendente"} />
           </View>
         </Section>
@@ -343,6 +351,8 @@ export function ClienteAreaScreen({
             <EmptyText text="Nenhuma solicitacao registrada." />
           )}
         </Section>
+
+        <BrandFooter />
       </ScrollView>
     </View>
   );
@@ -470,16 +480,19 @@ function PhotoPreview({ label, uri }: PhotoPreviewProps) {
 
 type AttendanceDetailProps = {
   attendance: AttendanceRecord;
+  client: Client;
   onBack: () => void;
 };
 
-function AttendanceDetail({ attendance, onBack }: AttendanceDetailProps) {
+function AttendanceDetail({ attendance, client, onBack }: AttendanceDetailProps) {
   return (
     <View style={styles.detailStack}>
       <PrimaryButton onPress={onBack} style={styles.detailBackButton} title="Voltar" />
+      <PoolReferencePhoto size="banner" uri={client.referencePhotoUri} />
       <View style={styles.card}>
         <DetailRow label="Data" value={attendance.attendanceDate} />
         <DetailRow label="Status" value="Limpeza concluida" />
+        <DetailRow label="Atendido por" value={attendance.employeeName ?? "Nao informado"} />
         <DetailRow
           label="Checklist"
           value={
@@ -623,8 +636,8 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 14,
     padding: 16,
@@ -643,7 +656,8 @@ const styles = StyleSheet.create({
     width: 118,
   },
   detailLabel: {
-    color: colors.muted,
+    color: colors.primaryLight,
+    fontFamily: "Inter",
     fontSize: 13,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -661,8 +675,8 @@ const styles = StyleSheet.create({
   },
   emptyBox: {
     backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 16,
   },
@@ -672,7 +686,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   eyebrow: {
-    color: colors.muted,
+    color: colors.primaryLight,
+    fontFamily: "Inter",
     fontSize: 13,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -699,8 +714,8 @@ const styles = StyleSheet.create({
   },
   infoTile: {
     backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     flex: 1,
     gap: 8,
@@ -803,6 +818,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.white,
+    fontFamily: "Poppins",
     fontSize: 22,
     fontWeight: "900",
   },
@@ -819,6 +835,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.white,
+    fontFamily: "Poppins",
     fontSize: 31,
     fontWeight: "900",
     lineHeight: 37,

@@ -1,4 +1,4 @@
-export type ClientPlan = "monthly" | "biweekly";
+export type ClientPlan = "monthly" | "biweekly" | "weekly" | "daily" | "one-time";
 
 export type ClientFrequency = "once" | "twice" | "three-times" | "daily" | "custom";
 
@@ -19,6 +19,7 @@ export type Client = {
   neighborhood: string;
   address: string;
   poolType?: string;
+  referencePhotoUri?: string;
   liters?: number;
   notes: string;
   plan: ClientPlan;
@@ -31,8 +32,11 @@ export type Client = {
 export type ClientFormData = Omit<Client, "id">;
 
 export const clientPlanLabels: Record<ClientPlan, string> = {
-  monthly: "Mensal",
   biweekly: "Quinzenal",
+  daily: "Todo dia",
+  monthly: "Mensal",
+  "one-time": "Avulso",
+  weekly: "Semanal",
 };
 
 export const clientFrequencyLabels: Record<ClientFrequency, string> = {

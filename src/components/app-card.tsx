@@ -55,13 +55,13 @@ const toneStyles = {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.cardElevated,
-    borderColor: "rgba(255, 255, 255, 0.14)",
-    borderRadius: 14,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderCurve: "continuous",
     borderWidth: 1,
-    boxShadow: "0 18px 34px rgba(0, 0, 0, 0.22)",
+    boxShadow: "0 18px 36px rgba(0, 0, 0, 0.26)",
     gap: 14,
-    padding: 18,
+    padding: 16,
   },
   cardPressed: {
     opacity: 0.88,

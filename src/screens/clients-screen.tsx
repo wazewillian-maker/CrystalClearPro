@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
 import { AppTextInput } from "../components/app-text-input";
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
 import colors from "../theme/colors";
@@ -72,23 +73,29 @@ export function ClientsScreen({
                 onPress={() => onOpenClient(client.id)}
                 style={styles.clientCard}
               >
-                <View style={styles.clientHeader}>
-                  <Text selectable style={styles.clientName}>
-                    {client.name}
-                  </Text>
-                  <Text selectable style={styles.clientCity}>
-                    {client.city}
-                  </Text>
-                </View>
+                <View style={styles.clientRow}>
+                  <PoolReferencePhoto uri={client.referencePhotoUri} />
+                  <View style={styles.clientText}>
+                    <View style={styles.clientHeader}>
+                      <Text selectable style={styles.clientName}>
+                        {client.name}
+                      </Text>
+                      <Text selectable style={styles.clientCity}>
+                        {client.city}
+                      </Text>
+                    </View>
 
-                <Text selectable style={styles.clientDetail}>
-                  {client.phone}
-                </Text>
+                    <Text selectable style={styles.clientDetail}>
+                      {client.phone}
+                    </Text>
+                    <Text selectable style={styles.clientDetail}>
+                      {client.neighborhood} - {clientPlanLabels[client.plan]}
+                    </Text>
+                    <Text style={styles.clientStatus}>Ativo</Text>
+                  </View>
+                </View>
                 <Text selectable style={styles.clientDetail}>
                   {client.address}
-                </Text>
-                <Text selectable style={styles.clientDetail}>
-                  {client.neighborhood} - {clientPlanLabels[client.plan]}
                 </Text>
                 {client.notes ? (
                   <Text selectable style={styles.clientNotes}>
@@ -112,6 +119,8 @@ export function ClientsScreen({
 
 const styles = StyleSheet.create({
   clientCard: {
+    backgroundColor: "rgba(13, 43, 77, 0.86)",
+    borderColor: colors.border,
     gap: 8,
   },
   clientCity: {
@@ -132,8 +141,25 @@ const styles = StyleSheet.create({
   },
   clientName: {
     color: colors.white,
+    fontFamily: "Poppins",
     fontSize: 18,
     fontWeight: "900",
+  },
+  clientRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+  },
+  clientStatus: {
+    color: colors.primaryLight,
+    fontFamily: "Inter",
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  clientText: {
+    flex: 1,
+    gap: 5,
   },
   clientNotes: {
     color: colors.white,
@@ -148,8 +174,8 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: "center",
     backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 220,

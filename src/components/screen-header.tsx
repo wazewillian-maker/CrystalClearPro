@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import colors from "../theme/colors";
+import { BrandLogo } from "./brand";
 import { PrimaryButton } from "./primary-button";
 
 type ScreenHeaderProps = {
@@ -21,6 +22,7 @@ export function ScreenHeader({
 }: ScreenHeaderProps) {
   return (
     <View style={styles.header}>
+      <BrandLogo size="small" />
       <View style={styles.headerText}>
         {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
         <Text selectable style={styles.title}>

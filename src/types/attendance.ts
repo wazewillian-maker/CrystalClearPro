@@ -4,6 +4,8 @@ export type AttendanceRecord = {
   id: string;
   clientName: string;
   attendanceDate: string;
+  employeeId?: string;
+  employeeName?: string;
   completedItems: string[];
   productsUsed: string;
   observations: string;

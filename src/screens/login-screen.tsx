@@ -11,6 +11,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
 import { AppTextInput } from "../components/app-text-input";
+import { BrandFooter, BrandLogo } from "../components/brand";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 
@@ -48,25 +49,23 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.root}>
       <StatusBar style="light" />
+      <View pointerEvents="none" style={styles.backgroundGlowTop} />
+      <View pointerEvents="none" style={styles.backgroundGlowBottom} />
       <ScrollView
         contentContainerStyle={styles.content}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brand}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>CC</Text>
-          </View>
+          <BrandLogo align="center" showText={false} size="large" />
           <Text style={styles.title}>Crystal Clear Pro</Text>
-          <Text style={styles.subtitle}>
-            Gestao de manutencao de piscinas com rotina clara, alertas e agenda do dia.
-          </Text>
+          <Text style={styles.subtitle}>Gestao Inteligente para Piscinas</Text>
         </View>
 
         <AppCard style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Entrar</Text>
-            <Text style={styles.cardSubtitle}>Use dados ficticios para visualizar a demo.</Text>
+            <Text style={styles.cardSubtitle}>Acesse o painel operacional em modo de teste.</Text>
           </View>
 
           <View style={styles.form}>
@@ -110,27 +109,56 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
           <PrimaryButton
             icon=">"
-            title="Acessar painel"
+            title="Entrar"
             onPress={() => onLogin(selectedRole)}
+          />
+
+          <PrimaryButton
+            icon="~"
+            onPress={() => onLogin("owner")}
+            title="Modo Teste"
+            variant="secondary"
           />
 
           <Text selectable style={styles.demoHint}>
             Demo local, sem autenticacao real e sem Firebase.
           </Text>
         </AppCard>
+
+        <BrandFooter />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  backgroundGlowBottom: {
+    backgroundColor: "rgba(21, 101, 255, 0.18)",
+    borderRadius: 220,
+    bottom: -120,
+    height: 280,
+    position: "absolute",
+    right: -120,
+    width: 280,
+  },
+  backgroundGlowTop: {
+    backgroundColor: "rgba(0, 212, 255, 0.16)",
+    borderRadius: 260,
+    height: 340,
+    left: -170,
+    position: "absolute",
+    top: -150,
+    width: 340,
+  },
   brand: {
     alignItems: "center",
-    gap: 12,
-    paddingTop: 22,
+    gap: 8,
+    paddingTop: 10,
   },
   card: {
-    gap: 20,
+    backgroundColor: "rgba(13, 43, 77, 0.72)",
+    borderColor: colors.border,
+    gap: 16,
     width: "100%",
   },
   cardHeader: {
@@ -143,12 +171,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: colors.white,
-    fontSize: 24,
+    fontFamily: "Poppins",
+    fontSize: 22,
     fontWeight: "900",
   },
   content: {
     flexGrow: 1,
-    gap: 34,
+    gap: 28,
     justifyContent: "center",
     padding: 24,
   },
@@ -163,24 +192,9 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.white,
+    fontFamily: "Inter",
     fontSize: 14,
     fontWeight: "800",
-  },
-  logo: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderColor: "rgba(255, 255, 255, 0.28)",
-    borderRadius: 28,
-    borderWidth: 1,
-    boxShadow: "0 18px 36px rgba(30, 139, 255, 0.28)",
-    height: 78,
-    justifyContent: "center",
-    width: 78,
-  },
-  logoText: {
-    color: colors.white,
-    fontSize: 27,
-    fontWeight: "900",
   },
   root: {
     backgroundColor: colors.background,
@@ -197,9 +211,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   roleOption: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 16,
     borderWidth: 1,
     gap: 4,
     padding: 12,
@@ -208,8 +223,8 @@ const styles = StyleSheet.create({
     opacity: 0.84,
   },
   roleOptionSelected: {
-    backgroundColor: "rgba(39, 174, 96, 0.24)",
-    borderColor: "rgba(39, 174, 96, 0.6)",
+    backgroundColor: "rgba(21, 101, 255, 0.28)",
+    borderColor: colors.primaryLight,
   },
   roleOptions: {
     gap: 8,
@@ -226,8 +241,11 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.white,
-    fontSize: 34,
+    fontFamily: "Poppins",
+    fontSize: 30,
     fontWeight: "900",
+    letterSpacing: 3,
     textAlign: "center",
+    textTransform: "uppercase",
   },
 });

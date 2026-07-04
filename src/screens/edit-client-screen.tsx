@@ -1,17 +1,22 @@
 import React, { useState } from "react";
 import {
   KeyboardAvoidingView,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
+import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
-import type { Client, ClientFormData } from "../types/client";
+import { clientPlanLabels, type Client, type ClientFormData, type ClientPlan } from "../types/client";
+
+const planOptions: ClientPlan[] = ["monthly", "biweekly", "weekly", "daily", "one-time"];
 
 type EditClientScreenProps = {
   client: Client;
@@ -31,6 +36,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
       : "",
   );
   const [notes, setNotes] = useState(client.notes);
+  const [referencePhotoUri, setReferencePhotoUri] = useState(client.referencePhotoUri ?? "");
   const [monthlyValue, setMonthlyValue] = useState(
     typeof client.valorMensal === "number" && Number.isFinite(client.valorMensal)
       ? String(client.valorMensal)
@@ -41,6 +47,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
       ? String(client.diaVencimento)
       : "",
   );
+  const [plan, setPlan] = useState<ClientPlan>(client.plan);
   const [error, setError] = useState("");
 
   function handleSave() {
@@ -75,11 +82,43 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
       address: address.trim(),
       phone: phone.trim(),
       poolType: poolType.trim(),
+      referencePhotoUri,
       liters: parsedLiters,
       notes: notes.trim(),
+      plan,
       valorMensal: parsedMonthlyValue,
       diaVencimento: parsedDueDay,
     });
+  }
+
+  async function pickReferencePhoto() {
+    setError("");
+
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permissionResult.granted) {
+      setError("Permita o acesso as imagens para adicionar a foto de referencia.");
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: false,
+      mediaTypes: ["images"],
+      quality: 1,
+    });
+
+    if (pickerResult.canceled) {
+      return;
+    }
+
+    const selectedPhotoUri = pickerResult.assets[0]?.uri;
+
+    if (!selectedPhotoUri) {
+      setError("Nao foi possivel carregar a imagem selecionada.");
+      return;
+    }
+
+    setReferencePhotoUri(selectedPhotoUri);
   }
 
   return (
@@ -105,6 +144,33 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
             title="Voltar"
             variant="danger"
           />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Foto de Referencia da Piscina</Text>
+          <Text selectable style={styles.helperText}>
+            Essa foto sera usada para identificar esta piscina em todo o aplicativo.
+          </Text>
+          <PoolReferencePhoto size="banner" uri={referencePhotoUri} />
+          <PrimaryButton
+            onPress={pickReferencePhoto}
+            style={styles.photoButton}
+            title={referencePhotoUri ? "Alterar foto" : "Selecionar imagem"}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Plano de atendimento</Text>
+          <View style={styles.optionGrid}>
+            {planOptions.map((option) => (
+              <PlanOption
+                key={option}
+                label={clientPlanLabels[option]}
+                onPress={() => setPlan(option)}
+                selected={plan === option}
+              />
+            ))}
+          </View>
         </View>
 
         <View style={styles.card}>
@@ -212,6 +278,31 @@ function FormField({
   );
 }
 
+type PlanOptionProps = {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+};
+
+function PlanOption({ label, onPress, selected }: PlanOptionProps) {
+  return (
+    <Pressable
+      accessibilityLabel={`Plano ${label}`}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.option,
+        selected && styles.optionSelected,
+        pressed && styles.optionPressed,
+      ]}
+    >
+      <View style={[styles.radioControl, selected && styles.radioControlSelected]} />
+      <Text style={styles.optionText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   backButton: {
     alignSelf: "flex-start",
@@ -259,6 +350,16 @@ const styles = StyleSheet.create({
   headerText: {
     gap: 8,
   },
+  groupTitle: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  helperText: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
   input: {
     backgroundColor: colors.input,
     borderColor: colors.border,
@@ -275,9 +376,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
   },
+  option: {
+    alignItems: "center",
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  optionGrid: {
+    gap: 10,
+  },
+  optionPressed: {
+    opacity: 0.86,
+  },
+  optionSelected: {
+    backgroundColor: "rgba(45, 125, 255, 0.18)",
+    borderColor: colors.primaryLight,
+  },
+  optionText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  photoButton: {
+    height: 50,
+  },
   root: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  radioControl: {
+    borderColor: colors.muted,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 18,
+    width: 18,
+  },
+  radioControlSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryLight,
   },
   subtitle: {
     color: colors.textSecondary,
