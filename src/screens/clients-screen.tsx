@@ -1,8 +1,11 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
+import { AppTextInput } from "../components/app-text-input";
 import { PrimaryButton } from "../components/primary-button";
+import { ScreenHeader } from "../components/screen-header";
 import colors from "../theme/colors";
 import { clientPlanLabels, type Client } from "../types/client";
 
@@ -30,30 +33,18 @@ export function ClientsScreen({
     <View style={styles.root}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>Cadastro</Text>
-            <Text style={styles.title}>Clientes</Text>
-            <Text selectable style={styles.subtitle}>
-              Gerencie os clientes e piscinas atendidas pela equipe.
-            </Text>
-          </View>
-
-          <PrimaryButton
-            onPress={onBack}
-            style={styles.backButton}
-            title="Voltar"
-            variant="danger"
-          />
-        </View>
+        <ScreenHeader
+          eyebrow="Cadastro"
+          onBack={onBack}
+          subtitle="Gerencie os clientes e piscinas atendidas pela equipe."
+          title="Clientes"
+        />
 
         <View style={styles.toolbar}>
-          <TextInput
+          <AppTextInput
             autoCapitalize="none"
             onChangeText={setSearch}
             placeholder="Pesquisar clientes"
-            placeholderTextColor={colors.muted}
-            style={styles.searchInput}
             value={search}
           />
 
@@ -67,20 +58,19 @@ export function ClientsScreen({
         </View>
 
         {clients.length === 0 ? (
-          <View style={styles.emptyState}>
+          <AppCard style={styles.emptyState}>
             <Text selectable style={styles.emptyTitle}>
               Nenhum cliente cadastrado.
             </Text>
-          </View>
+          </AppCard>
         ) : filteredClients.length > 0 ? (
           <View style={styles.clientList}>
             {filteredClients.map((client) => (
-              <Pressable
+              <AppCard
                 accessibilityLabel={`Abrir ficha de ${client.name}`}
-                accessibilityRole="button"
                 key={client.id}
                 onPress={() => onOpenClient(client.id)}
-                style={({ pressed }) => [styles.clientCard, pressed && styles.clientCardPressed]}
+                style={styles.clientCard}
               >
                 <View style={styles.clientHeader}>
                   <Text selectable style={styles.clientName}>
@@ -105,15 +95,15 @@ export function ClientsScreen({
                     {client.notes}
                   </Text>
                 ) : null}
-              </Pressable>
+              </AppCard>
             ))}
           </View>
         ) : (
-          <View style={styles.emptyState}>
+          <AppCard style={styles.emptyState}>
             <Text selectable style={styles.emptyTitle}>
               Nenhum cliente encontrado.
             </Text>
-          </View>
+          </AppCard>
         )}
       </ScrollView>
     </View>
@@ -121,22 +111,8 @@ export function ClientsScreen({
 }
 
 const styles = StyleSheet.create({
-  backButton: {
-    alignSelf: "flex-start",
-    height: 44,
-    paddingHorizontal: 18,
-    width: 118,
-  },
   clientCard: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
     gap: 8,
-    padding: 16,
-  },
-  clientCardPressed: {
-    opacity: 0.86,
   },
   clientCity: {
     color: colors.muted,
@@ -185,46 +161,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
   },
-  eyebrow: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  header: {
-    alignItems: "flex-start",
-    gap: 18,
-  },
-  headerText: {
-    gap: 8,
-  },
   newClientButton: {
     height: 52,
   },
   root: {
     backgroundColor: colors.background,
     flex: 1,
-  },
-  searchInput: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    color: colors.white,
-    fontSize: 16,
-    height: 52,
-    paddingHorizontal: 14,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    lineHeight: 23,
-  },
-  title: {
-    color: colors.white,
-    fontSize: 31,
-    fontWeight: "900",
-    lineHeight: 37,
   },
   toolbar: {
     gap: 12,

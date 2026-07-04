@@ -5,11 +5,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
+import { AppTextInput } from "../components/app-text-input";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 
@@ -62,33 +63,21 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           </Text>
         </View>
 
-        <View style={styles.card}>
+        <AppCard style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Entrar</Text>
             <Text style={styles.cardSubtitle}>Use dados ficticios para visualizar a demo.</Text>
           </View>
 
           <View style={styles.form}>
-            <View style={styles.field}>
-              <Text style={styles.label}>E-mail</Text>
-              <TextInput
-                autoCapitalize="none"
-                keyboardType="email-address"
-                placeholder="tecnico@crystalclear.com"
-                placeholderTextColor={colors.muted}
-                style={styles.input}
-              />
-            </View>
+            <AppTextInput
+              autoCapitalize="none"
+              keyboardType="email-address"
+              label="E-mail"
+              placeholder="tecnico@crystalclear.com"
+            />
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Senha</Text>
-              <TextInput
-                placeholder="********"
-                placeholderTextColor={colors.muted}
-                secureTextEntry
-                style={styles.input}
-              />
-            </View>
+            <AppTextInput label="Senha" placeholder="********" secureTextEntry />
           </View>
 
           <View style={styles.roleSection}>
@@ -128,7 +117,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           <Text selectable style={styles.demoHint}>
             Demo local, sem autenticacao real e sem Firebase.
           </Text>
-        </View>
+        </AppCard>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -141,13 +130,7 @@ const styles = StyleSheet.create({
     paddingTop: 22,
   },
   card: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.14)",
-    borderRadius: 8,
-    borderWidth: 1,
-    boxShadow: "0 12px 26px rgba(0, 0, 0, 0.2)",
     gap: 20,
-    padding: 20,
     width: "100%",
   },
   cardHeader: {
@@ -175,21 +158,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
   },
-  field: {
-    gap: 8,
-  },
   form: {
     gap: 14,
-  },
-  input: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    color: colors.white,
-    fontSize: 16,
-    height: 52,
-    paddingHorizontal: 14,
   },
   label: {
     color: colors.white,
@@ -200,8 +170,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.primary,
     borderColor: "rgba(255, 255, 255, 0.28)",
-    borderRadius: 24,
+    borderRadius: 28,
     borderWidth: 1,
+    boxShadow: "0 18px 36px rgba(30, 139, 255, 0.28)",
     height: 78,
     justifyContent: "center",
     width: 78,

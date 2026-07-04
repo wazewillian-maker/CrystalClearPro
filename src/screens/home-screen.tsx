@@ -2,8 +2,10 @@ import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
 import { InfoCard } from "../components/info-card";
 import { PrimaryButton } from "../components/primary-button";
+import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
 import { agendaStatusLabels, type AgendaItem } from "../types/agenda";
 
@@ -144,7 +146,7 @@ export function HomeScreen({
 
           <View style={styles.taskList}>
             {agendaItems.slice(0, 4).map((item) => (
-              <View key={item.id} style={styles.agendaCard}>
+              <AppCard key={item.id} style={styles.agendaCard}>
                 <View style={styles.agendaHeader}>
                   <View style={styles.agendaText}>
                     <Text selectable style={styles.agendaClient}>
@@ -154,20 +156,23 @@ export function HomeScreen({
                       {item.neighborhood} - {item.address}
                     </Text>
                   </View>
-                  <Text style={styles.agendaStatus}>{agendaStatusLabels[item.status]}</Text>
+                  <StatusBadge
+                    label={agendaStatusLabels[item.status]}
+                    tone={item.status === "finished" ? "completed" : item.status === "pending" ? "pending" : "info"}
+                  />
                 </View>
-              </View>
+              </AppCard>
             ))}
           </View>
         </View>
 
-        <View style={styles.summary}>
+        <AppCard style={styles.summary} tone="success">
           <Text style={styles.summaryTitle}>Resumo rapido</Text>
           <Text selectable style={styles.summaryText}>
             Use a Agenda para iniciar atendimentos, o Financeiro para acompanhar recebimentos
             e a Area do Cliente para aprovar produtos faltando antes da entrega.
           </Text>
-        </View>
+        </AppCard>
       </ScrollView>
     </View>
   );
@@ -180,10 +185,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   agendaCard: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
     padding: 14,
   },
   agendaClient: {
@@ -201,11 +202,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     justifyContent: "space-between",
-  },
-  agendaStatus: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: "900",
   },
   agendaText: {
     flex: 1,
@@ -298,12 +294,7 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   summary: {
-    backgroundColor: "rgba(39, 174, 96, 0.18)",
-    borderColor: "rgba(39, 174, 96, 0.44)",
-    borderRadius: 8,
-    borderWidth: 1,
     gap: 8,
-    padding: 16,
   },
   summaryText: {
     color: colors.textSecondary,

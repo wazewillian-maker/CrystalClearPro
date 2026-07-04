@@ -2,7 +2,9 @@ import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
 import { PrimaryButton } from "../components/primary-button";
+import { ScreenHeader } from "../components/screen-header";
 import colors from "../theme/colors";
 import {
   clientFrequencyLabels,
@@ -34,23 +36,12 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>Ficha do cliente</Text>
-            <Text selectable style={styles.title}>
-              {client.name}
-            </Text>
-            <Text selectable style={styles.subtitle}>
-              {client.city} - {client.neighborhood}
-            </Text>
-          </View>
-
-          <PrimaryButton
-            onPress={onBack}
-            style={styles.backButton}
-            title="Voltar"
-            variant="danger"
+          <ScreenHeader
+            eyebrow="Ficha do cliente"
+            onBack={onBack}
+            subtitle={`${client.city} - ${client.neighborhood}`}
+            title={client.name}
           />
-
           <View style={styles.actionRow}>
             <PrimaryButton
               onPress={onEdit}
@@ -67,7 +58,7 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
           </View>
         </View>
 
-        <View style={styles.card}>
+        <AppCard>
           <DetailRow label="Nome" value={client.name} />
           <DetailRow label="Telefone" value={client.phone} />
           <DetailRow label="Cidade" value={client.city} />
@@ -83,21 +74,21 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
             }
           />
           <DetailRow label="Observacoes" value={client.notes || "Sem observacoes"} />
-        </View>
+        </AppCard>
 
-        <View style={styles.card}>
+        <AppCard>
           <DetailRow label="Plano" value={clientPlanLabels[client.plan]} />
           <DetailRow label="Frequencia" value={clientFrequencyLabels[client.frequency]} />
           <DetailRow
             label="Dias da semana"
             value={selectedWeekDays || "Nenhum dia selecionado"}
           />
-        </View>
+        </AppCard>
 
-        <View style={styles.card}>
+        <AppCard>
           <DetailRow label="Valor mensal da limpeza" value={monthlyValue} />
           <DetailRow label="Dia de vencimento" value={dueDay} />
-        </View>
+        </AppCard>
       </ScrollView>
     </View>
   );
@@ -132,20 +123,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
-  backButton: {
-    alignSelf: "flex-start",
-    height: 44,
-    paddingHorizontal: 18,
-    width: 118,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 14,
-    padding: 18,
-  },
   content: {
     gap: 24,
     padding: 20,
@@ -177,32 +154,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     width: 154,
   },
-  eyebrow: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
   header: {
     alignItems: "flex-start",
     gap: 18,
   },
-  headerText: {
-    gap: 8,
-  },
   root: {
     backgroundColor: colors.background,
     flex: 1,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    lineHeight: 23,
-  },
-  title: {
-    color: colors.white,
-    fontSize: 31,
-    fontWeight: "900",
-    lineHeight: 37,
   },
 });

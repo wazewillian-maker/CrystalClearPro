@@ -16,15 +16,17 @@ type PrimaryButtonProps = {
   title: string;
   onPress: (event: GestureResponderEvent) => void;
   loading?: boolean;
-  variant?: "primary" | "success" | "danger";
+  variant?: "primary" | "success" | "danger" | "secondary" | "warning";
   icon?: string;
   style?: StyleProp<ViewStyle>;
 };
 
 const variantColors = {
-  primary: colors.primary,
-  success: colors.success,
   danger: colors.danger,
+  primary: colors.primary,
+  secondary: colors.cardElevated,
+  success: colors.success,
+  warning: colors.warning,
 };
 
 export function PrimaryButton({
@@ -43,7 +45,11 @@ export function PrimaryButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: variantColors[variant], opacity: pressed ? 0.86 : 1 },
+        {
+          backgroundColor: variantColors[variant],
+          opacity: pressed ? 0.88 : 1,
+          transform: [{ translateY: pressed ? 1 : 0 }],
+        },
         loading && styles.disabled,
         style,
       ]}
@@ -63,11 +69,14 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     alignItems: "center",
-    borderRadius: 14,
+    borderColor: "rgba(255, 255, 255, 0.14)",
+    borderRadius: 12,
     borderCurve: "continuous",
-    boxShadow: "0 8px 18px rgba(0, 0, 0, 0.18)",
+    borderWidth: 1,
+    boxShadow: "0 14px 28px rgba(0, 0, 0, 0.24)",
     height: 56,
     justifyContent: "center",
+    paddingHorizontal: 16,
     width: "100%",
   },
   content: {
@@ -86,7 +95,7 @@ const styles = StyleSheet.create({
   },
   text: {
     color: colors.white,
-    fontSize: 17,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "900",
   },
 });

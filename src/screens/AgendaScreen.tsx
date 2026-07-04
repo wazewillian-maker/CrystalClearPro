@@ -2,7 +2,10 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
 import { PrimaryButton } from "../components/primary-button";
+import { ScreenHeader } from "../components/screen-header";
+import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
 import {
   agendaStatusLabels,
@@ -31,33 +34,23 @@ export function AgendaScreen({
     <View style={styles.root}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>Agenda</Text>
-            <Text style={styles.title}>Atendimentos do dia</Text>
-            <Text selectable style={styles.subtitle}>
-              Organize as piscinas que precisam de atendimento hoje, sem horarios.
-            </Text>
-          </View>
+        <ScreenHeader
+          eyebrow="Agenda"
+          onBack={onBack}
+          subtitle="Organize as piscinas que precisam de atendimento hoje, sem horarios."
+          title="Atendimentos do dia"
+        />
 
-          <PrimaryButton
-            onPress={onBack}
-            style={styles.backButton}
-            title="Voltar"
-            variant="danger"
-          />
-        </View>
-
-        <View style={styles.summary}>
+        <AppCard style={styles.summary}>
           <Text style={styles.summaryTitle}>{pendingCount} atendimento(s) em aberto</Text>
           <Text selectable style={styles.summaryText}>
             Atualize o status conforme o trabalho avanca e inicie o atendimento pelo cliente.
           </Text>
-        </View>
+        </AppCard>
 
         <View style={styles.agendaList}>
           {agendaItems.map((item) => (
-            <View key={item.id} style={styles.agendaCard}>
+            <AppCard key={item.id} style={styles.agendaCard}>
               <View style={styles.itemHeader}>
                 <View style={styles.itemHeaderText}>
                   <Text selectable style={styles.clientName}>
@@ -68,9 +61,7 @@ export function AgendaScreen({
                   </Text>
                 </View>
 
-                <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
-                  <Text style={styles.statusText}>{agendaStatusLabels[item.status]}</Text>
-                </View>
+                <StatusBadge label={agendaStatusLabels[item.status]} tone={getStatusTone(item.status)} />
               </View>
 
               <Text selectable style={styles.address}>
@@ -115,7 +106,7 @@ export function AgendaScreen({
                 title="Iniciar atendimento"
                 variant={item.status === "finished" ? "primary" : "success"}
               />
-            </View>
+            </AppCard>
           ))}
         </View>
       </ScrollView>
@@ -123,16 +114,16 @@ export function AgendaScreen({
   );
 }
 
-function getStatusBadgeStyle(status: AgendaStatus) {
+function getStatusTone(status: AgendaStatus) {
   if (status === "finished") {
-    return styles.statusFinished;
+    return "completed";
   }
 
   if (status === "in-progress") {
-    return styles.statusInProgress;
+    return "info";
   }
 
-  return styles.statusPending;
+  return "pending";
 }
 
 const styles = StyleSheet.create({
@@ -142,21 +133,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   agendaCard: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
     gap: 16,
-    padding: 16,
   },
   agendaList: {
     gap: 12,
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    height: 44,
-    paddingHorizontal: 18,
-    width: 118,
   },
   clientName: {
     color: colors.white,
@@ -169,24 +149,11 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 28,
   },
-  eyebrow: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
   groupLabel: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: "900",
     textTransform: "uppercase",
-  },
-  header: {
-    alignItems: "flex-start",
-    gap: 18,
-  },
-  headerText: {
-    gap: 8,
   },
   itemHeader: {
     alignItems: "flex-start",
@@ -210,22 +177,8 @@ const styles = StyleSheet.create({
   startButton: {
     height: 50,
   },
-  statusBadge: {
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusFinished: {
-    backgroundColor: "rgba(39, 174, 96, 0.28)",
-    borderColor: "rgba(39, 174, 96, 0.6)",
-  },
   statusGroup: {
     gap: 10,
-  },
-  statusInProgress: {
-    backgroundColor: "rgba(46, 134, 222, 0.28)",
-    borderColor: "rgba(46, 134, 222, 0.6)",
   },
   statusOption: {
     alignItems: "center",
@@ -258,27 +211,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-  statusPending: {
-    backgroundColor: "rgba(243, 156, 18, 0.22)",
-    borderColor: "rgba(243, 156, 18, 0.52)",
-  },
-  statusText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    lineHeight: 23,
-  },
   summary: {
-    backgroundColor: "rgba(46, 134, 222, 0.22)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
-    borderWidth: 1,
     gap: 8,
-    padding: 16,
   },
   summaryText: {
     color: colors.textSecondary,
@@ -289,11 +223,5 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 18,
     fontWeight: "900",
-  },
-  title: {
-    color: colors.white,
-    fontSize: 31,
-    fontWeight: "900",
-    lineHeight: 37,
   },
 });

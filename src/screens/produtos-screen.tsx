@@ -11,7 +11,10 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
 import { PrimaryButton } from "../components/primary-button";
+import { ScreenHeader } from "../components/screen-header";
+import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
 import type { ProductRequest, ProductRequestItem } from "../types/product-request";
 
@@ -143,45 +146,35 @@ export function ProdutosScreen({
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>Produtos Pendentes</Text>
-            <Text style={styles.title}>Produtos para levar</Text>
-            <Text selectable style={styles.subtitle}>
-              Somente itens aprovados pelo cliente aparecem aqui para entrega.
-            </Text>
-          </View>
-
-          <PrimaryButton
-            onPress={onBack}
-            style={styles.backButton}
-            title="Voltar"
-            variant="danger"
-          />
-        </View>
+        <ScreenHeader
+          eyebrow="Produtos Pendentes"
+          onBack={onBack}
+          subtitle="Somente itens aprovados pelo cliente aparecem aqui para entrega."
+          title="Produtos para levar"
+        />
 
         {successMessage ? (
-          <View style={styles.successBox}>
+          <AppCard style={styles.successBox} tone="success">
             <Text selectable style={styles.successText}>
               {successMessage}
             </Text>
-          </View>
+          </AppCard>
         ) : null}
 
         {error ? (
-          <View style={styles.errorBox}>
+          <AppCard style={styles.errorBox} tone="danger">
             <Text selectable style={styles.errorText}>
               {error}
             </Text>
-          </View>
+          </AppCard>
         ) : null}
 
-        <View style={styles.summary}>
+        <AppCard style={styles.summary}>
           <Text style={styles.summaryTitle}>{approvedItems.length} aprovado(s) para levar</Text>
           <Text selectable style={styles.summaryText}>
             Itens pendentes de aprovacao, recusados ou ja entregues ficam fora desta lista.
           </Text>
-        </View>
+        </AppCard>
 
         <View style={styles.productList}>
           {groupedItems.length > 0 ? (
@@ -197,7 +190,7 @@ export function ProdutosScreen({
                     deliveryTarget.itemId === approvedItem.item.id;
 
                   return (
-                    <View key={approvedItem.item.id} style={styles.productCard}>
+                    <AppCard key={approvedItem.item.id} style={styles.productCard}>
                       <View style={styles.productHeader}>
                         <View style={styles.clientInfo}>
                           <Text selectable style={styles.clientName}>
@@ -208,9 +201,7 @@ export function ProdutosScreen({
                           </Text>
                         </View>
 
-                        <View style={styles.statusBadge}>
-                          <Text style={styles.statusText}>Aprovado</Text>
-                        </View>
+                        <StatusBadge label="Aprovado" tone="approved" />
                       </View>
 
                       <View style={styles.detailGroup}>
@@ -278,17 +269,17 @@ export function ProdutosScreen({
                           </View>
                         </View>
                       ) : null}
-                    </View>
+                    </AppCard>
                   );
                 })}
               </View>
             ))
           ) : (
-            <View style={styles.emptyBox}>
+            <AppCard style={styles.emptyBox}>
               <Text selectable style={styles.emptyText}>
                 Nenhum item aprovado para levar por enquanto.
               </Text>
-            </View>
+            </AppCard>
           )}
         </View>
       </ScrollView>

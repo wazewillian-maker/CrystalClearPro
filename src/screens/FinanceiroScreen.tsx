@@ -2,7 +2,9 @@ import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
+import { AppCard } from "../components/app-card";
 import { PrimaryButton } from "../components/primary-button";
+import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
 import type { Client } from "../types/client";
 import type { PaymentStatuses } from "../types/finance";
@@ -44,7 +46,7 @@ export function FinanceiroScreen({
             onPress={onBack}
             style={styles.backButton}
             title="Voltar"
-            variant="danger"
+            variant="secondary"
           />
         </View>
 
@@ -55,11 +57,11 @@ export function FinanceiroScreen({
         </View>
 
         {clients.length === 0 ? (
-          <View style={styles.emptyState}>
+          <AppCard style={styles.emptyState}>
             <Text selectable style={styles.emptyTitle}>
               Nenhum cliente cadastrado para cobrança.
             </Text>
-          </View>
+          </AppCard>
         ) : (
           <View style={styles.chargeList}>
             {clients.map((client) => {
@@ -70,7 +72,7 @@ export function FinanceiroScreen({
               const dueDay = hasDueDay(client) ? String(client.diaVencimento) : "Nao informado";
 
               return (
-                <View key={client.id} style={[styles.chargeCard, isPaid && styles.chargeCardPaid]}>
+                <AppCard key={client.id} style={styles.chargeCard} tone={isPaid ? "success" : "default"}>
                   <View style={styles.chargeHeader}>
                     <View style={styles.clientInfo}>
                       <Text selectable style={styles.clientName}>
@@ -81,9 +83,7 @@ export function FinanceiroScreen({
                       </Text>
                     </View>
 
-                    <View style={[styles.statusBadge, isPaid && styles.statusBadgePaid]}>
-                      <Text style={styles.statusText}>{isPaid ? "Pago" : "Pendente"}</Text>
-                    </View>
+                    <StatusBadge label={isPaid ? "Pago" : "Pendente"} tone={isPaid ? "paid" : "pending"} />
                   </View>
 
                   <View style={styles.detailGroup}>
@@ -99,7 +99,7 @@ export function FinanceiroScreen({
                       variant="success"
                     />
                   ) : null}
-                </View>
+                </AppCard>
               );
             })}
           </View>
@@ -117,12 +117,12 @@ type FinanceMetricProps = {
 
 function FinanceMetric({ label, value, tone = "primary" }: FinanceMetricProps) {
   return (
-    <View style={[styles.metricCard, styles[`${tone}Metric`]]}>
+    <AppCard style={[styles.metricCard, styles[`${tone}Metric`]]}>
       <Text style={styles.metricLabel}>{label}</Text>
       <Text selectable style={styles.metricValue}>
         {value}
       </Text>
-    </View>
+    </AppCard>
   );
 }
 

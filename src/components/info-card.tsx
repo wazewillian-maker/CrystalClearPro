@@ -58,15 +58,16 @@ export function InfoCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.card,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderRadius: 8,
+    backgroundColor: colors.cardElevated,
+    borderColor: "rgba(255, 255, 255, 0.14)",
+    borderRadius: 14,
+    borderCurve: "continuous",
     borderWidth: 1,
-    boxShadow: "0 8px 18px rgba(0, 0, 0, 0.14)",
+    boxShadow: "0 18px 34px rgba(0, 0, 0, 0.24)",
     flex: 1,
-    gap: 8,
+    gap: 10,
     minWidth: 148,
-    padding: 16,
+    padding: 18,
   },
   cardPressed: {
     opacity: 0.84,
@@ -77,9 +78,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   label: {
-    color: colors.textSecondary,
+    color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "900",
     textTransform: "uppercase",
   },
   marker: {
@@ -89,7 +90,7 @@ const styles = StyleSheet.create({
   },
   value: {
     color: colors.white,
-    fontSize: 28,
+    fontSize: 30,
     fontVariant: ["tabular-nums"],
     fontWeight: "900",
   },

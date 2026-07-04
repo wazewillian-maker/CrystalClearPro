@@ -11,6 +11,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 
 import { PrimaryButton } from "../components/primary-button";
+import { StatusBadge, type StatusTone } from "../components/status-badge";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
 import type { Client } from "../types/client";
@@ -233,9 +234,10 @@ export function ClienteAreaScreen({
                         Quantidade: {item.quantity}
                       </Text>
                     </View>
-                    <Text style={styles.statusText}>
-                      {item.status === "delivered" ? "Entregue" : "Aprovado"}
-                    </Text>
+                    <StatusBadge
+                      label={item.status === "delivered" ? "Entregue" : "Aprovado"}
+                      tone={item.status === "delivered" ? "delivered" : "approved"}
+                    />
                   </View>
                   <DetailRow label="Observacao" value={item.observation || "Sem observacao"} />
                   <DetailRow label="Data da aprovacao" value={item.approvedAt ?? "Nao informada"} />
@@ -320,7 +322,10 @@ export function ClienteAreaScreen({
                         Proxima visita: {request.nextVisitDate}
                       </Text>
                     </View>
-                    <Text style={styles.statusText}>{requestStatusLabels[request.status]}</Text>
+                    <StatusBadge
+                      label={requestStatusLabels[request.status]}
+                      tone={getRequestTone(request.status)}
+                    />
                   </View>
                   {request.items.map((item) => (
                     <DetailRow
@@ -390,7 +395,7 @@ function ApprovalItemCard({ item, onApprove, onReject }: ApprovalItemCardProps) 
             {item.observation || "Sem observacao"}
           </Text>
         </View>
-        <Text style={styles.statusText}>Pendente</Text>
+        <StatusBadge label="Pendente" tone="pending" />
       </View>
 
       <View style={styles.itemActions}>
@@ -567,6 +572,22 @@ function getItemStatusLabel(status: ProductRequestItemStatus) {
   };
 
   return labels[status];
+}
+
+function getRequestTone(status: ProductRequestStatus): StatusTone {
+  if (status === "approved") {
+    return "approved";
+  }
+
+  if (status === "rejected") {
+    return "rejected";
+  }
+
+  if (status === "partially-approved") {
+    return "info";
+  }
+
+  return "pending";
 }
 
 function formatCurrency(value: number) {
