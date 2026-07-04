@@ -1,3 +1,5 @@
+import type { MissingProductItem } from "./product-request";
+
 export type AttendanceRecord = {
   id: string;
   clientName: string;
@@ -5,6 +7,7 @@ export type AttendanceRecord = {
   completedItems: string[];
   productsUsed: string;
   observations: string;
+  missingProducts: MissingProductItem[];
   beforePhotoUri: string;
   afterPhotoUri: string;
 };

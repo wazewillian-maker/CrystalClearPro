@@ -1,33 +1,31 @@
-import React, { useState } from "react";
+import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { Client } from "../types/client";
-
-type PaymentStatus = "pending" | "paid";
+import type { PaymentStatuses } from "../types/finance";
 
 type FinanceiroScreenProps = {
   clients: Client[];
   onBack: () => void;
+  onMarkAsPaid: (clientId: string) => void;
+  paymentStatuses: PaymentStatuses;
 };
 
-export function FinanceiroScreen({ clients, onBack }: FinanceiroScreenProps) {
-  const [paymentStatuses, setPaymentStatuses] = useState<Record<string, PaymentStatus>>({});
+export function FinanceiroScreen({
+  clients,
+  onBack,
+  onMarkAsPaid,
+  paymentStatuses,
+}: FinanceiroScreenProps) {
   const clientsWithValue = clients.filter(hasMonthlyValue);
   const totalToReceive = clientsWithValue.reduce((total, client) => total + client.valorMensal, 0);
   const totalReceived = clientsWithValue
     .filter((client) => getPaymentStatus(client.id, paymentStatuses) === "paid")
     .reduce((total, client) => total + client.valorMensal, 0);
   const totalPending = totalToReceive - totalReceived;
-
-  function markAsPaid(clientId: string) {
-    setPaymentStatuses((currentStatuses) => ({
-      ...currentStatuses,
-      [clientId]: "paid",
-    }));
-  }
 
   return (
     <View style={styles.root}>
@@ -95,7 +93,7 @@ export function FinanceiroScreen({ clients, onBack }: FinanceiroScreenProps) {
 
                   {!isPaid ? (
                     <PrimaryButton
-                      onPress={() => markAsPaid(client.id)}
+                      onPress={() => onMarkAsPaid(client.id)}
                       style={styles.paidButton}
                       title="Marcar como Pago"
                       variant="success"
@@ -153,8 +151,8 @@ function formatCurrency(value: number) {
 
 function getPaymentStatus(
   clientId: string,
-  paymentStatuses: Record<string, PaymentStatus>,
-): PaymentStatus {
+  paymentStatuses: PaymentStatuses,
+) {
   return paymentStatuses[clientId] ?? "pending";
 }
 

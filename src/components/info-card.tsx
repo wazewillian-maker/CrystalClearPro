@@ -1,5 +1,12 @@
 import React from "react";
-import { StyleSheet, Text, View, type ColorValue } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ColorValue,
+  type GestureResponderEvent,
+} from "react-native";
 
 import colors from "../theme/colors";
 
@@ -8,11 +15,18 @@ type InfoCardProps = {
   value: string;
   helper?: string;
   tone?: ColorValue;
+  onPress?: (event: GestureResponderEvent) => void;
 };
 
-export function InfoCard({ label, value, helper, tone = colors.primary }: InfoCardProps) {
-  return (
-    <View style={styles.card}>
+export function InfoCard({
+  label,
+  value,
+  helper,
+  tone = colors.primary,
+  onPress,
+}: InfoCardProps) {
+  const content = (
+    <>
       <View style={[styles.marker, { backgroundColor: tone }]} />
       <Text style={styles.label}>{label}</Text>
       <Text selectable style={styles.value}>
@@ -23,8 +37,23 @@ export function InfoCard({ label, value, helper, tone = colors.primary }: InfoCa
           {helper}
         </Text>
       ) : null}
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.card}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -38,6 +67,9 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 148,
     padding: 16,
+  },
+  cardPressed: {
+    opacity: 0.84,
   },
   helper: {
     color: colors.textSecondary,

@@ -51,6 +51,8 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
   const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [address, setAddress] = useState("");
+  const [poolType, setPoolType] = useState("");
+  const [liters, setLiters] = useState("");
   const [notes, setNotes] = useState("");
   const [monthlyValue, setMonthlyValue] = useState("");
   const [dueDay, setDueDay] = useState("");
@@ -134,6 +136,12 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
       return;
     }
 
+    const parsedLiters = liters.trim() ? Number(liters.replace(",", ".")) : undefined;
+    if (parsedLiters !== undefined && (!Number.isFinite(parsedLiters) || parsedLiters < 0)) {
+      setError("Informe uma quantidade de litros valida.");
+      return;
+    }
+
     setError("");
     onSave({
       name: name.trim(),
@@ -141,6 +149,8 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
       city: city.trim(),
       neighborhood: neighborhood.trim(),
       address: address.trim(),
+      poolType: poolType.trim(),
+      liters: parsedLiters,
       notes: notes.trim(),
       plan,
       frequency,
@@ -196,6 +206,19 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
             onChangeText={setAddress}
             placeholder="Rua das Aguas, 120"
             value={address}
+          />
+          <FormField
+            label="Tipo da piscina"
+            onChangeText={setPoolType}
+            placeholder="Fibra, vinil ou alvenaria"
+            value={poolType}
+          />
+          <FormField
+            keyboardType="decimal-pad"
+            label="Litros"
+            onChangeText={setLiters}
+            placeholder="30000"
+            value={liters}
           />
           <FormField
             keyboardType="decimal-pad"

@@ -11,46 +11,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
-
-type StockUnit = "kg" | "g" | "litros" | "ml" | "unidade";
-
-type StockProduct = {
-  id: string;
-  name: string;
-  category: string;
-  quantity: number;
-  unit: StockUnit;
-  minimumStock: number;
-};
-
-const unitOptions: StockUnit[] = ["kg", "g", "litros", "ml", "unidade"];
-
-const initialProducts: StockProduct[] = [
-  {
-    id: "1",
-    name: "Cloro granulado",
-    category: "Tratamento",
-    quantity: 8,
-    unit: "kg",
-    minimumStock: 5,
-  },
-  {
-    id: "2",
-    name: "Clarificante",
-    category: "Tratamento",
-    quantity: 1,
-    unit: "litros",
-    minimumStock: 2,
-  },
-  {
-    id: "3",
-    name: "Peneira",
-    category: "Equipamentos",
-    quantity: 3,
-    unit: "unidade",
-    minimumStock: 1,
-  },
-];
+import { isLowStock, unitOptions, type StockProduct, type StockUnit } from "../types/stock";
 
 type ProductForm = {
   name: string;
@@ -70,10 +31,17 @@ const emptyForm: ProductForm = {
 
 type EstoqueScreenProps = {
   onBack: () => void;
+  onDeleteProduct: (productId: string) => void;
+  onSaveProduct: (product: StockProduct) => void;
+  products: StockProduct[];
 };
 
-export function EstoqueScreen({ onBack }: EstoqueScreenProps) {
-  const [products, setProducts] = useState(initialProducts);
+export function EstoqueScreen({
+  onBack,
+  onDeleteProduct,
+  onSaveProduct,
+  products,
+}: EstoqueScreenProps) {
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -140,22 +108,12 @@ export function EstoqueScreen({ onBack }: EstoqueScreenProps) {
       minimumStock: parsedMinimumStock,
     };
 
-    setProducts((currentProducts) => {
-      if (editingProductId) {
-        return currentProducts.map((product) =>
-          product.id === editingProductId ? nextProduct : product,
-        );
-      }
-
-      return [nextProduct, ...currentProducts];
-    });
+    onSaveProduct(nextProduct);
     cancelForm();
   }
 
   function deleteProduct(productId: string) {
-    setProducts((currentProducts) =>
-      currentProducts.filter((product) => product.id !== productId),
-    );
+    onDeleteProduct(productId);
 
     if (editingProductId === productId) {
       cancelForm();
@@ -393,10 +351,6 @@ function DetailRow({ label, value }: DetailRowProps) {
       </Text>
     </View>
   );
-}
-
-function isLowStock(product: StockProduct) {
-  return product.quantity <= product.minimumStock;
 }
 
 function formatNumber(value: number) {

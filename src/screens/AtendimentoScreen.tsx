@@ -15,6 +15,8 @@ import { StatusBar } from "expo-status-bar";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
+import type { Client } from "../types/client";
+import type { MissingProductItem } from "../types/product-request";
 
 type ChecklistItem = {
   id: string;
@@ -22,22 +24,24 @@ type ChecklistItem = {
 };
 
 const checklistItems: ChecklistItem[] = [
-  { id: "vacuumed", label: "Aspirou a piscina" },
-  { id: "brushed-edges", label: "Escovou as bordas" },
-  { id: "cleaned-prefilter", label: "Limpou o pre-filtro" },
+  { id: "vacuumed", label: "Aspiracao" },
+  { id: "brushed-edges", label: "Escovacao das bordas" },
+  { id: "cleaned-prefilter", label: "Limpeza do pre-filtro" },
   { id: "measured-ph", label: "Medição de pH" },
   { id: "measured-chlorine", label: "Medição de cloro" },
-  { id: "applied-product", label: "Aplicou produto" },
-  { id: "washed-filter", label: "Lavou o filtro" },
+  { id: "applied-product", label: "Aplicacao de produto" },
+  { id: "washed-filter", label: "Lavagem do filtro" },
 ];
 
 type AtendimentoScreenProps = {
+  clients?: Client[];
   onBack: () => void;
   onSaveAttendance: (attendance: AttendanceRecord) => void;
   initialClientName?: string;
 };
 
 export function AtendimentoScreen({
+  clients = [],
   onBack,
   onSaveAttendance,
   initialClientName,
@@ -48,6 +52,10 @@ export function AtendimentoScreen({
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [productsUsed, setProductsUsed] = useState("Cloro granulado, clarificante");
   const [observations, setObservations] = useState("");
+  const [missingProduct, setMissingProduct] = useState("");
+  const [missingQuantity, setMissingQuantity] = useState("");
+  const [missingObservation, setMissingObservation] = useState("");
+  const [missingProducts, setMissingProducts] = useState<MissingProductItem[]>([]);
   const [beforePhotoUri, setBeforePhotoUri] = useState("");
   const [afterPhotoUri, setAfterPhotoUri] = useState("");
   const [error, setError] = useState("");
@@ -109,6 +117,35 @@ export function AtendimentoScreen({
     setAfterPhotoUri(selectedPhotoUri);
   }
 
+  function addMissingProduct() {
+    setSuccessMessage("");
+
+    if (!missingProduct.trim() || !missingQuantity.trim()) {
+      setError("Preencha o produto/item faltando e a quantidade.");
+      return;
+    }
+
+    setError("");
+    setMissingProducts((currentProducts) => [
+      ...currentProducts,
+      {
+        id: String(Date.now()),
+        observation: missingObservation.trim(),
+        product: missingProduct.trim(),
+        quantity: missingQuantity.trim(),
+      },
+    ]);
+    setMissingProduct("");
+    setMissingQuantity("");
+    setMissingObservation("");
+  }
+
+  function removeMissingProduct(productId: string) {
+    setMissingProducts((currentProducts) =>
+      currentProducts.filter((product) => product.id !== productId),
+    );
+  }
+
   function finalizeAttendance() {
     setSuccessMessage("");
 
@@ -134,6 +171,7 @@ export function AtendimentoScreen({
       clientName: clientName.trim(),
       attendanceDate: attendanceDate.trim(),
       completedItems: completedLabels,
+      missingProducts,
       productsUsed: productsUsed.trim(),
       observations: observations.trim(),
       beforePhotoUri,
@@ -142,7 +180,11 @@ export function AtendimentoScreen({
 
     setAttendanceRecord(finishedAttendance);
     onSaveAttendance(finishedAttendance);
-    setSuccessMessage("Atendimento finalizado com sucesso. Voltando para a Home...");
+    setSuccessMessage(
+      missingProducts.length > 0
+        ? "Limpeza concluida. Solicitacao de produtos pendente para aprovacao. Voltando para a Home..."
+        : "Limpeza concluida. Voltando para a Home...",
+    );
 
     returnHomeTimerRef.current = setTimeout(() => {
       onBack();
@@ -191,6 +233,28 @@ export function AtendimentoScreen({
         ) : null}
 
         <View style={styles.card}>
+          {clients.length > 0 ? (
+            <View style={styles.field}>
+              <Text style={styles.label}>Selecionar cliente</Text>
+              <View style={styles.clientPicker}>
+                {clients.map((client) => (
+                  <PrimaryButton
+                    key={client.id}
+                    onPress={() => {
+                      setClientName(client.name);
+                      setSuccessMessage("");
+                    }}
+                    style={[
+                      styles.clientPickerButton,
+                      clientName === client.name && styles.clientPickerButtonSelected,
+                    ]}
+                    title={client.name}
+                    variant={clientName === client.name ? "success" : "primary"}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
           <FormField
             label="Nome do cliente"
             onChangeText={(text) => {
@@ -261,6 +325,82 @@ export function AtendimentoScreen({
             placeholder="Detalhes importantes do atendimento"
             value={observations}
           />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Produtos faltando</Text>
+          <Text selectable style={styles.helperText}>
+            Registre itens que precisam ser aprovados pelo cliente antes de separar para levar.
+          </Text>
+
+          <FormField
+            label="Produto/item"
+            onChangeText={(text) => {
+              setMissingProduct(text);
+              setSuccessMessage("");
+            }}
+            placeholder="Peneira, cloro, mangueira..."
+            value={missingProduct}
+          />
+          <FormField
+            label="Quantidade"
+            onChangeText={(text) => {
+              setMissingQuantity(text);
+              setSuccessMessage("");
+            }}
+            placeholder="1 unidade, 2 kg, 500 ml..."
+            value={missingQuantity}
+          />
+          <FormField
+            label="Observacao opcional"
+            multiline
+            onChangeText={(text) => {
+              setMissingObservation(text);
+              setSuccessMessage("");
+            }}
+            placeholder="Motivo ou detalhe para o cliente"
+            value={missingObservation}
+          />
+
+          <PrimaryButton
+            onPress={addMissingProduct}
+            style={styles.addMissingButton}
+            title="Adicionar produto faltando"
+            variant="success"
+          />
+
+          {missingProducts.length > 0 ? (
+            <View style={styles.missingList}>
+              {missingProducts.map((item) => (
+                <View key={item.id} style={styles.missingItem}>
+                  <View style={styles.missingText}>
+                    <Text selectable style={styles.missingTitle}>
+                      {item.product}
+                    </Text>
+                    <Text selectable style={styles.missingDetail}>
+                      Quantidade: {item.quantity}
+                    </Text>
+                    {item.observation ? (
+                      <Text selectable style={styles.missingDetail}>
+                        {item.observation}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`Remover ${item.product}`}
+                    accessibilityRole="button"
+                    onPress={() => removeMissingProduct(item.id)}
+                    style={({ pressed }) => [
+                      styles.removeMissingButton,
+                      pressed && styles.removeMissingButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.removeMissingText}>Remover</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.card}>
@@ -361,6 +501,9 @@ function FormField({
 }
 
 const styles = StyleSheet.create({
+  addMissingButton: {
+    height: 50,
+  },
   backButton: {
     alignSelf: "flex-start",
     height: 44,
@@ -374,6 +517,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 16,
     padding: 16,
+  },
+  clientPicker: {
+    gap: 8,
+  },
+  clientPickerButton: {
+    height: 44,
+  },
+  clientPickerButtonSelected: {
+    borderColor: "rgba(255, 255, 255, 0.22)",
+    borderWidth: 1,
   },
   checkItem: {
     alignItems: "center",
@@ -465,6 +618,11 @@ const styles = StyleSheet.create({
   headerText: {
     gap: 8,
   },
+  helperText: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
   input: {
     backgroundColor: colors.input,
     borderColor: colors.border,
@@ -480,6 +638,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+  missingDetail: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  missingItem: {
+    alignItems: "flex-start",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    padding: 12,
+  },
+  missingList: {
+    gap: 10,
+  },
+  missingText: {
+    flex: 1,
+    gap: 4,
+  },
+  missingTitle: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: "900",
   },
   photoActions: {
     gap: 12,
@@ -513,6 +699,22 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  removeMissingButton: {
+    backgroundColor: "rgba(231, 76, 60, 0.22)",
+    borderColor: "rgba(231, 76, 60, 0.44)",
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  removeMissingButtonPressed: {
+    opacity: 0.82,
+  },
+  removeMissingText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
   },
   subtitle: {
     color: colors.textSecondary,

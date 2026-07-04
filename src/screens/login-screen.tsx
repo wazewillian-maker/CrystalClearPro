@@ -1,6 +1,7 @@
 import React from "react";
 import {
   KeyboardAvoidingView,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,11 +13,37 @@ import { StatusBar } from "expo-status-bar";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 
+export type TestUserRole = "owner" | "staff" | "client";
+
 type LoginScreenProps = {
-  onLogin: () => void;
+  onLogin: (role: TestUserRole) => void;
 };
 
+const roleOptions: Array<{
+  description: string;
+  label: string;
+  value: TestUserRole;
+}> = [
+  {
+    description: "Acesso total ao aplicativo.",
+    label: "Dono",
+    value: "owner",
+  },
+  {
+    description: "Funcoes operacionais sem Financeiro.",
+    label: "Socio/Funcionario",
+    value: "staff",
+  },
+  {
+    description: "Area exclusiva para historico e aprovacoes.",
+    label: "Cliente (Teste)",
+    value: "client",
+  },
+];
+
 export function LoginScreen({ onLogin }: LoginScreenProps) {
+  const [selectedRole, setSelectedRole] = React.useState<TestUserRole>("owner");
+
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.root}>
       <StatusBar style="light" />
@@ -64,7 +91,39 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             </View>
           </View>
 
-          <PrimaryButton icon=">" title="Acessar painel" onPress={onLogin} />
+          <View style={styles.roleSection}>
+            <Text style={styles.label}>Entrar como</Text>
+            <View style={styles.roleOptions}>
+              {roleOptions.map((option) => {
+                const selected = option.value === selectedRole;
+
+                return (
+                  <Pressable
+                    accessibilityLabel={`Entrar como ${option.label}`}
+                    accessibilityRole="button"
+                    key={option.value}
+                    onPress={() => setSelectedRole(option.value)}
+                    style={({ pressed }) => [
+                      styles.roleOption,
+                      selected && styles.roleOptionSelected,
+                      pressed && styles.roleOptionPressed,
+                    ]}
+                  >
+                    <Text style={styles.roleLabel}>{option.label}</Text>
+                    <Text selectable style={styles.roleDescription}>
+                      {option.description}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          <PrimaryButton
+            icon=">"
+            title="Acessar painel"
+            onPress={() => onLogin(selectedRole)}
+          />
 
           <Text selectable style={styles.demoHint}>
             Demo local, sem autenticacao real e sem Firebase.
@@ -155,6 +214,37 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  roleDescription: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  roleLabel: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  roleOption: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    padding: 12,
+  },
+  roleOptionPressed: {
+    opacity: 0.84,
+  },
+  roleOptionSelected: {
+    backgroundColor: "rgba(39, 174, 96, 0.24)",
+    borderColor: "rgba(39, 174, 96, 0.6)",
+  },
+  roleOptions: {
+    gap: 8,
+  },
+  roleSection: {
+    gap: 10,
   },
   subtitle: {
     color: colors.textSecondary,

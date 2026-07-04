@@ -108,6 +108,21 @@ function AttendanceDetail({ attendance }: AttendanceDetailProps) {
           value={attendance.productsUsed || "Sem produtos registrados"}
         />
         <DetailRow
+          label="Produtos faltando"
+          value={
+            attendance.missingProducts.length > 0
+              ? attendance.missingProducts
+                  .map(
+                    (item) =>
+                      `${item.product} (${item.quantity})${
+                        item.observation ? ` - ${item.observation}` : ""
+                      }`,
+                  )
+                  .join(", ")
+              : "Nenhum produto faltando"
+          }
+        />
+        <DetailRow
           label="Observacoes"
           value={attendance.observations || "Sem observacoes"}
         />

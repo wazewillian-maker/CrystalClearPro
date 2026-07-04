@@ -3,32 +3,57 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { InfoCard } from "../components/info-card";
-import { MaintenanceCard } from "../components/maintenance-card";
 import { PrimaryButton } from "../components/primary-button";
-import { dashboardMetrics, maintenanceTasks } from "../data/mock-dashboard";
 import colors from "../theme/colors";
+import { agendaStatusLabels, type AgendaItem } from "../types/agenda";
+
+export type DashboardMetric = {
+  helper?: string;
+  id: string;
+  label: string;
+  tone?: string;
+  value: string;
+};
 
 type HomeScreenProps = {
+  agendaItems: AgendaItem[];
+  canAccessFinance: boolean;
+  dashboardMetrics: DashboardMetric[];
   onOpenClients: () => void;
   onOpenProducts: () => void;
   onOpenAttendance: () => void;
   onOpenHistory: () => void;
   onOpenAgenda: () => void;
   onOpenFinance: () => void;
-  onOpenStock: () => void;
+  onOpenClientArea: () => void;
+  onSwitchProfile: () => void;
   onLogout: () => void;
+  profileLabel: string;
 };
 
 export function HomeScreen({
+  agendaItems,
+  canAccessFinance,
+  dashboardMetrics,
   onOpenClients,
   onOpenProducts,
   onOpenAttendance,
   onOpenHistory,
   onOpenAgenda,
   onOpenFinance,
-  onOpenStock,
+  onOpenClientArea,
+  onSwitchProfile,
   onLogout,
+  profileLabel,
 }: HomeScreenProps) {
+  const metricPressHandlers: Record<string, () => void> = {
+    agenda: onOpenAgenda,
+    "client-area": onOpenClientArea,
+    completed: onOpenHistory,
+    payments: onOpenFinance,
+    products: onOpenProducts,
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -38,7 +63,7 @@ export function HomeScreen({
             <Text style={styles.eyebrow}>Painel do tecnico</Text>
             <Text style={styles.title}>Agenda de manutencao</Text>
             <Text selectable style={styles.subtitle}>
-              Ola, Marina. Seus atendimentos de hoje ja estao organizados por prioridade.
+              Modo de teste: {profileLabel}. Seus atendimentos e produtos estao organizados para teste.
             </Text>
           </View>
           <View style={styles.actionRow}>
@@ -52,7 +77,7 @@ export function HomeScreen({
               icon=">"
               onPress={onOpenProducts}
               style={styles.productsButton}
-              title="Produtos"
+              title="Produtos Pendentes"
               variant="success"
             />
             <PrimaryButton
@@ -74,17 +99,19 @@ export function HomeScreen({
               title="Histórico"
               variant="success"
             />
+            {canAccessFinance ? (
+              <PrimaryButton
+                icon=">"
+                onPress={onOpenFinance}
+                style={styles.financeButton}
+                title="Financeiro"
+              />
+            ) : null}
             <PrimaryButton
-              icon=">"
-              onPress={onOpenFinance}
-              style={styles.financeButton}
-              title="Financeiro"
-            />
-            <PrimaryButton
-              icon=">"
-              onPress={onOpenStock}
-              style={styles.headerButton}
-              title="Estoque"
+              icon="~"
+              onPress={onSwitchProfile}
+              style={styles.clientAreaButton}
+              title="Trocar Perfil"
             />
             <PrimaryButton
               icon="x"
@@ -102,6 +129,7 @@ export function HomeScreen({
               helper={metric.helper}
               key={metric.id}
               label={metric.label}
+              onPress={metricPressHandlers[metric.id]}
               tone={metric.tone}
               value={metric.value}
             />
@@ -110,13 +138,25 @@ export function HomeScreen({
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Proximos servicos</Text>
-            <Text style={styles.sectionCount}>{maintenanceTasks.length} itens</Text>
+            <Text style={styles.sectionTitle}>Piscinas do dia</Text>
+            <Text style={styles.sectionCount}>{agendaItems.length} itens</Text>
           </View>
 
           <View style={styles.taskList}>
-            {maintenanceTasks.map((task) => (
-              <MaintenanceCard key={task.id} task={task} />
+            {agendaItems.slice(0, 4).map((item) => (
+              <View key={item.id} style={styles.agendaCard}>
+                <View style={styles.agendaHeader}>
+                  <View style={styles.agendaText}>
+                    <Text selectable style={styles.agendaClient}>
+                      {item.clientName}
+                    </Text>
+                    <Text selectable style={styles.agendaDetail}>
+                      {item.neighborhood} - {item.address}
+                    </Text>
+                  </View>
+                  <Text style={styles.agendaStatus}>{agendaStatusLabels[item.status]}</Text>
+                </View>
+              </View>
             ))}
           </View>
         </View>
@@ -124,8 +164,8 @@ export function HomeScreen({
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>Resumo rapido</Text>
           <Text selectable style={styles.summaryText}>
-            Priorize o Condominio Lago Azul pela baixa concentracao de cloro. Os demais
-            atendimentos seguem dentro da janela planejada.
+            Use a Agenda para iniciar atendimentos, o Financeiro para acompanhar recebimentos
+            e a Area do Cliente para aprovar produtos faltando antes da entrega.
           </Text>
         </View>
       </ScrollView>
@@ -139,11 +179,49 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
+  agendaCard: {
+    backgroundColor: colors.card,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14,
+  },
+  agendaClient: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  agendaDetail: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  agendaHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  agendaStatus: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  agendaText: {
+    flex: 1,
+    gap: 5,
+  },
   attendanceButton: {
     alignSelf: "flex-start",
     height: 44,
     paddingHorizontal: 18,
     width: 168,
+  },
+  clientAreaButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 178,
   },
   financeButton: {
     alignSelf: "flex-start",
@@ -185,7 +263,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     height: 44,
     paddingHorizontal: 18,
-    width: 142,
+    width: 202,
   },
   metricsGrid: {
     flexDirection: "row",
