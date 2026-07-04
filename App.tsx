@@ -8,6 +8,7 @@ import { ClientsScreen } from "./src/screens/clients-screen";
 import { ClientDetailScreen } from "./src/screens/client-detail-screen";
 import { EditClientScreen } from "./src/screens/edit-client-screen";
 import { EquipeScreen } from "./src/screens/EquipeScreen";
+import { FirebaseDiagnosticsScreen } from "./src/screens/FirebaseDiagnosticsScreen";
 import { FinanceiroScreen } from "./src/screens/FinanceiroScreen";
 import { HistoricoScreen } from "./src/screens/HistoricoScreen";
 import { HomeScreen } from "./src/screens/home-screen";
@@ -112,7 +113,8 @@ type AppScreen =
   | "agenda"
   | "team"
   | "finance"
-  | "client-area";
+  | "client-area"
+  | "firebase-diagnostics";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("splash");
@@ -553,6 +555,7 @@ export default function App() {
           onOpenHistory={() => setCurrentScreen("history")}
           onOpenAgenda={() => setCurrentScreen("agenda")}
           onOpenFinance={() => setCurrentScreen("finance")}
+          onOpenFirebaseDiagnostics={() => setCurrentScreen("firebase-diagnostics")}
           onOpenClientArea={() => setCurrentScreen("client-area")}
           onOpenTeam={() => setCurrentScreen("team")}
           onStartAttendance={handleStartAgendaAttendance}
@@ -669,6 +672,10 @@ export default function App() {
           paymentStatus={testClientPaymentStatus}
           productRequests={productRequests}
         />
+      ) : null}
+
+      {currentScreen === "firebase-diagnostics" ? (
+        <FirebaseDiagnosticsScreen onBack={() => setCurrentScreen("home")} />
       ) : null}
 
     </SafeAreaProvider>

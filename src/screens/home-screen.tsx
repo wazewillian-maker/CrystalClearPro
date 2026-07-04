@@ -48,6 +48,7 @@ type HomeScreenProps = {
   onOpenHistory: () => void;
   onOpenAgenda: () => void;
   onOpenFinance: () => void;
+  onOpenFirebaseDiagnostics: () => void;
   onOpenClientArea: () => void;
   onOpenTeam: () => void;
   onStartAttendance: (agendaItem: AgendaItem) => void;
@@ -70,6 +71,7 @@ export function HomeScreen({
   onOpenHistory,
   onOpenAgenda,
   onOpenFinance,
+  onOpenFirebaseDiagnostics,
   onOpenClientArea,
   onOpenTeam,
   onStartAttendance,
@@ -275,6 +277,13 @@ export function HomeScreen({
             {canManageTeam ? (
               <PrimaryButton icon="+" onPress={onOpenTeam} style={styles.headerButton} title="Equipe" />
             ) : null}
+            <PrimaryButton
+              icon="~"
+              onPress={onOpenFirebaseDiagnostics}
+              style={styles.diagnosticsButton}
+              title="Diagnostico Firebase"
+              variant="secondary"
+            />
             <PrimaryButton icon="~" onPress={onSwitchProfile} style={styles.clientAreaButton} title="Trocar Perfil" />
             <PrimaryButton icon="x" onPress={onLogout} style={styles.headerButton} title="Sair" variant="danger" />
           </View>
@@ -423,6 +432,12 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 18,
     width: 164,
+  },
+  diagnosticsButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 214,
   },
   header: {
     alignItems: "flex-start",
