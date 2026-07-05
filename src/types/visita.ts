@@ -1,7 +1,7 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type VisitaStatus = "pendente" | "em_atendimento" | "finalizada" | "cancelada";
-export type VisitaOrigem = "automatica" | "manual";
+export type VisitaStatus = "pendente" | "em andamento" | "concluida";
+export type VisitaOrigem = "manual" | "agenda";
 
 export type Visita = {
   id: string;
@@ -12,6 +12,8 @@ export type Visita = {
   data: string;
   status: VisitaStatus;
   origem: VisitaOrigem;
-  criadoEm: Timestamp;
-  atualizadoEm: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  criadoEm?: Timestamp;
+  atualizadoEm?: Timestamp;
 };

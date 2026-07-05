@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { getFirebaseFirestore } from "../firebase/firestore";
 import type { Funcionario } from "../types/funcionario";
@@ -17,19 +17,32 @@ export const funcionariosRepository = {
     return mapFirestoreDocs<Funcionario>(snapshot);
   },
 
-  async create(data: Omit<Funcionario, "id" | "criadoEm" | "atualizadoEm">): Promise<string> {
+  async listByUsuario(usuarioId: string): Promise<Funcionario[]> {
+    const snapshot = await getDocs(query(collection(getFirebaseFirestore(), collectionName), where("usuarioId", "==", usuarioId)));
+    return mapFirestoreDocs<Funcionario>(snapshot);
+  },
+
+  async create(data: Omit<Funcionario, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
       ...data,
-      criadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
     return ref.id;
   },
 
-  async update(id: string, data: Partial<Omit<Funcionario, "id" | "criadoEm">>): Promise<void> {
+  async createWithId(id: string, data: Omit<Funcionario, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<void> {
+    await setDoc(doc(getFirebaseFirestore(), collectionName, id), {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async update(id: string, data: Partial<Omit<Funcionario, "id" | "createdAt" | "criadoEm">>): Promise<void> {
     await updateDoc(doc(getFirebaseFirestore(), collectionName, id), {
       ...data,
-      atualizadoEm: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
   },
 };

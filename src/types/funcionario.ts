@@ -10,8 +10,11 @@ export type Funcionario = {
   nome: string;
   telefone?: string;
   email?: string;
+  cargo?: string;
   funcao: FuncionarioFuncao;
   status: FuncionarioStatus;
-  criadoEm: Timestamp;
-  atualizadoEm: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  criadoEm?: Timestamp;
+  atualizadoEm?: Timestamp;
 };

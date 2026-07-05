@@ -24,8 +24,9 @@ type EquipeScreenProps = {
   agendaItems: AgendaItem[];
   clients: Client[];
   employees: Employee[];
+  errorMessage?: string;
   onBack: () => void;
-  onAssignClientsToEmployee: (employeeId: string, clientIds: string[]) => void;
+  onAssignClientsToEmployee: (employeeId: string, clientIds: string[]) => Promise<void> | void;
   onCreateEmployee: (employee: EmployeeFormData) => void;
   onUpdateEmployee: (employeeId: string, employee: EmployeeFormData) => void;
   onToggleEmployeeStatus: (employeeId: string) => void;
@@ -35,6 +36,7 @@ export function EquipeScreen({
   agendaItems,
   clients,
   employees,
+  errorMessage,
   onBack,
   onAssignClientsToEmployee,
   onCreateEmployee,
@@ -50,6 +52,7 @@ export function EquipeScreen({
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [isAssigningPools, setIsAssigningPools] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
   const editingEmployee = employees.find((employee) => employee.id === editingEmployeeId);
   const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId);
 
@@ -98,13 +101,22 @@ export function EquipeScreen({
     );
   }
 
-  function saveAssignments() {
+  async function saveAssignments() {
     if (!selectedEmployee) {
       return;
     }
 
-    onAssignClientsToEmployee(selectedEmployee.id, selectedClientIds);
-    setIsAssigningPools(false);
+    setSavingAssignments(true);
+    setError("");
+
+    try {
+      await onAssignClientsToEmployee(selectedEmployee.id, selectedClientIds);
+      setIsAssigningPools(false);
+    } catch (assignmentError) {
+      setError(assignmentError instanceof Error ? assignmentError.message : "Nao foi possivel salvar as atribuicoes.");
+    } finally {
+      setSavingAssignments(false);
+    }
   }
 
   function handleSave() {
@@ -143,6 +155,14 @@ export function EquipeScreen({
           />
 
           <View style={styles.list}>
+            {error || errorMessage ? (
+              <AppCard style={styles.errorCard}>
+                <Text selectable style={styles.error}>
+                  {error || errorMessage}
+                </Text>
+              </AppCard>
+            ) : null}
+
             {clients.length > 0 ? (
               clients.map((client) => {
                 const currentAssignment = agendaItems.find(
@@ -206,6 +226,7 @@ export function EquipeScreen({
 
           <PrimaryButton
             icon=">"
+            loading={savingAssignments}
             onPress={saveAssignments}
             title="Salvar atribuicoes"
             variant="success"
@@ -291,6 +312,14 @@ export function EquipeScreen({
           subtitle="Distribua as piscinas do dia entre socios e funcionarios."
           title="Funcionarios"
         />
+
+        {errorMessage ? (
+          <AppCard style={styles.errorCard}>
+            <Text selectable style={styles.error}>
+              {errorMessage}
+            </Text>
+          </AppCard>
+        ) : null}
 
         <AppCard style={styles.formCard}>
           <Text style={styles.sectionTitle}>
@@ -505,6 +534,10 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 14,
     fontWeight: "900",
+  },
+  errorCard: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderColor: "rgba(239, 68, 68, 0.36)",
   },
   formActions: {
     flexDirection: "row",

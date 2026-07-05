@@ -24,11 +24,14 @@ type AgendaScreenProps = {
   clients: Client[];
   employees: Employee[];
   canDistribute: boolean;
+  canViewCommercialData?: boolean;
+  errorMessage?: string;
+  loading?: boolean;
   onBack: () => void;
-  onAddAgendaItem: (client: Client, visitDate: string) => void;
-  onAssignAgendaItem: (agendaItemId: string, employeeId: string) => void;
+  onAddAgendaItem: (client: Client, visitDate: string) => Promise<void> | void;
+  onAssignAgendaItem: (agendaItemId: string, employeeId: string) => Promise<void> | void;
   onStartAttendance: (agendaItem: AgendaItem) => void;
-  onUpdateStatus: (agendaItemId: string, status: AgendaStatus) => void;
+  onUpdateStatus: (agendaItemId: string, status: AgendaStatus) => Promise<void> | void;
 };
 
 export function AgendaScreen({
@@ -36,6 +39,9 @@ export function AgendaScreen({
   clients,
   employees,
   canDistribute,
+  canViewCommercialData = true,
+  errorMessage,
+  loading = false,
   onBack,
   onAddAgendaItem,
   onAssignAgendaItem,
@@ -45,10 +51,11 @@ export function AgendaScreen({
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id ?? "");
   const [visitDate, setVisitDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [formMessage, setFormMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const pendingCount = agendaItems.filter((item) => item.status !== "finished").length;
   const selectedClient = clients.find((client) => client.id === selectedClientId);
 
-  function handleAddAgendaItem() {
+  async function handleAddAgendaItem() {
     if (!selectedClient) {
       setFormMessage("Cadastre um cliente antes de adicionar uma piscina ao dia.");
       return;
@@ -59,8 +66,15 @@ export function AgendaScreen({
       return;
     }
 
-    onAddAgendaItem(selectedClient, visitDate.trim());
-    setFormMessage("Piscina adicionada ao dia.");
+    setSaving(true);
+    try {
+      await onAddAgendaItem(selectedClient, visitDate.trim());
+      setFormMessage("Piscina adicionada ao dia.");
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : "Nao foi possivel adicionar a piscina ao dia.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -77,79 +91,92 @@ export function AgendaScreen({
         <AppCard style={styles.summary}>
           <Text style={styles.summaryTitle}>{pendingCount} atendimento(s) em aberto</Text>
           <Text selectable style={styles.summaryText}>
-            Atualize o status conforme o trabalho avanca e inicie o atendimento pelo cliente.
+            {loading ? "Carregando visitas do Firestore..." : "Atualize o status conforme o trabalho avanca e inicie o atendimento pelo cliente."}
           </Text>
         </AppCard>
 
-        <AppCard style={styles.addCard}>
-          <View style={styles.addHeader}>
-            <Text style={styles.summaryTitle}>Adicionar piscina ao dia</Text>
-            <Text selectable style={styles.summaryText}>
-              Inclua manualmente uma piscina na agenda sem definir horario.
+        {errorMessage ? (
+          <AppCard style={styles.errorCard}>
+            <Text selectable style={styles.errorText}>
+              {errorMessage}
             </Text>
-          </View>
+          </AppCard>
+        ) : null}
 
-          <AppTextInput
-            label="Data da visita"
-            onChangeText={setVisitDate}
-            placeholder="15/07/2026"
-            value={visitDate}
-          />
-
-          <View style={styles.clientPicker}>
-            <Text style={styles.groupLabel}>Cliente</Text>
-            {clients.length > 0 ? (
-              <View style={styles.clientOptions}>
-                {clients.map((client) => {
-                  const selected = selectedClientId === client.id;
-
-                  return (
-                    <Pressable
-                      accessibilityLabel={`Selecionar ${client.name}`}
-                      accessibilityRole="button"
-                      key={client.id}
-                      onPress={() => {
-                        setSelectedClientId(client.id);
-                        setFormMessage("");
-                      }}
-                      style={({ pressed }) => [
-                        styles.clientOption,
-                        selected && styles.clientOptionSelected,
-                        pressed && styles.clientOptionPressed,
-                      ]}
-                    >
-                      <PoolReferencePhoto style={styles.clientOptionPhoto} uri={client.referencePhotoUri} />
-                      <View style={styles.clientOptionText}>
-                        <Text selectable style={styles.clientOptionName}>
-                          {client.name}
-                        </Text>
-                        <Text selectable style={styles.clientOptionDetail}>
-                          {client.neighborhood} - {clientPlanLabels[client.plan]}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : (
+        {canDistribute ? (
+          <AppCard style={styles.addCard}>
+            <View style={styles.addHeader}>
+              <Text style={styles.summaryTitle}>Adicionar piscina ao dia</Text>
               <Text selectable style={styles.summaryText}>
-                Nenhum cliente cadastrado.
+                Inclua manualmente uma piscina na agenda sem definir horario.
               </Text>
-            )}
-          </View>
+            </View>
 
-          {formMessage ? (
-            <Text selectable style={styles.formMessage}>
-              {formMessage}
-            </Text>
-          ) : null}
+            <AppTextInput
+              label="Data da visita"
+              onChangeText={setVisitDate}
+              placeholder="15/07/2026"
+              value={visitDate}
+            />
 
-          <PrimaryButton
-            icon="+"
-            onPress={handleAddAgendaItem}
-            title="Adicionar piscina ao dia"
-          />
-        </AppCard>
+            <View style={styles.clientPicker}>
+              <Text style={styles.groupLabel}>Cliente</Text>
+              {clients.length > 0 ? (
+                <View style={styles.clientOptions}>
+                  {clients.map((client) => {
+                    const selected = selectedClientId === client.id;
+
+                    return (
+                      <Pressable
+                        accessibilityLabel={`Selecionar ${client.name}`}
+                        accessibilityRole="button"
+                        key={client.id}
+                        onPress={() => {
+                          setSelectedClientId(client.id);
+                          setFormMessage("");
+                        }}
+                        style={({ pressed }) => [
+                          styles.clientOption,
+                          selected && styles.clientOptionSelected,
+                          pressed && styles.clientOptionPressed,
+                        ]}
+                      >
+                        <PoolReferencePhoto style={styles.clientOptionPhoto} uri={client.referencePhotoUri} />
+                        <View style={styles.clientOptionText}>
+                          <Text selectable style={styles.clientOptionName}>
+                            {client.name}
+                          </Text>
+                          <Text selectable style={styles.clientOptionDetail}>
+                            {canViewCommercialData
+                              ? `${client.neighborhood} - ${clientPlanLabels[client.plan]}`
+                              : client.neighborhood}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text selectable style={styles.summaryText}>
+                  Nenhum cliente cadastrado.
+                </Text>
+              )}
+            </View>
+
+            {formMessage ? (
+              <Text selectable style={styles.formMessage}>
+                {formMessage}
+              </Text>
+            ) : null}
+
+            <PrimaryButton
+              icon="+"
+              loading={saving}
+              onPress={handleAddAgendaItem}
+              title="Adicionar piscina ao dia"
+            />
+          </AppCard>
+        ) : null}
 
         <View style={styles.agendaList}>
           {agendaItems.map((item) => {
@@ -166,7 +193,7 @@ export function AgendaScreen({
                     <Text selectable style={styles.neighborhood}>
                       {item.neighborhood}
                     </Text>
-                    {agendaClient?.plan ? (
+                    {canViewCommercialData && agendaClient?.plan ? (
                       <Text selectable style={styles.planText}>
                         Plano: {clientPlanLabels[agendaClient.plan]}
                       </Text>
@@ -392,6 +419,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: "800",
+  },
+  errorCard: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderColor: "rgba(239, 68, 68, 0.36)",
+  },
+  errorText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
   },
   itemHeader: {
     alignItems: "flex-start",

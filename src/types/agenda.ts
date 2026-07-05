@@ -3,6 +3,7 @@ export type AgendaStatus = "pending" | "in-progress" | "finished";
 export type AgendaItem = {
   id: string;
   clientId?: string;
+  piscinaId?: string;
   clientName: string;
   neighborhood: string;
   address: string;

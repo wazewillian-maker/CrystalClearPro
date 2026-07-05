@@ -37,12 +37,15 @@ export type EmployeeSummary = {
 type HomeScreenProps = {
   agendaItems: AgendaItem[];
   canAccessAdmin: boolean;
+  canAccessClients: boolean;
   canManageTeam: boolean;
   canAccessFinance: boolean;
+  canViewCommercialData: boolean;
   clients: Client[];
   completionSummary: HomeCompletionSummary;
   dashboardMetrics: DashboardMetric[];
   employeeSummaries: EmployeeSummary[];
+  noticeMessage?: string;
   onOpenClients: () => void;
   onOpenProducts: () => void;
   onOpenAttendance: () => void;
@@ -62,12 +65,15 @@ type HomeScreenProps = {
 export function HomeScreen({
   agendaItems,
   canAccessAdmin,
+  canAccessClients,
   canManageTeam,
   canAccessFinance,
+  canViewCommercialData,
   clients,
   completionSummary,
   dashboardMetrics,
   employeeSummaries,
+  noticeMessage,
   onOpenClients,
   onOpenProducts,
   onOpenAttendance,
@@ -108,6 +114,14 @@ export function HomeScreen({
           </View>
         </View>
 
+        {noticeMessage ? (
+          <AppCard style={styles.noticeCard}>
+            <Text selectable style={styles.noticeText}>
+              {noticeMessage}
+            </Text>
+          </AppCard>
+        ) : null}
+
         {nextAgendaItem ? (
           <AppCard style={styles.nextPoolCard}>
             <View style={styles.nextPoolImageWrap}>
@@ -142,7 +156,7 @@ export function HomeScreen({
                     Tipo da piscina: {nextAgendaClient.poolType}
                   </Text>
                 ) : null}
-                {nextAgendaClient?.plan ? (
+                {canViewCommercialData && nextAgendaClient?.plan ? (
                   <Text selectable style={styles.nextPoolDetail}>
                     Plano: {clientPlanLabels[nextAgendaClient.plan]}
                   </Text>
@@ -233,11 +247,15 @@ export function HomeScreen({
                       <Text selectable style={styles.agendaDetail}>
                         {item.neighborhood} - {item.address}
                       </Text>
-                      {agendaClient?.plan ? (
+                      {canViewCommercialData && agendaClient?.plan ? (
                         <Text selectable style={styles.agendaDetail}>
                           Plano: {clientPlanLabels[agendaClient.plan]} - Data: {item.visitDate ?? "Hoje"}
                         </Text>
-                      ) : null}
+                      ) : (
+                        <Text selectable style={styles.agendaDetail}>
+                          Data: {item.visitDate ?? "Hoje"}
+                        </Text>
+                      )}
                     </View>
                     <StatusBadge
                       label={agendaStatusLabels[item.status]}
@@ -253,7 +271,9 @@ export function HomeScreen({
         <View style={styles.actionsSection}>
           <Text style={styles.sectionTitle}>Acoes principais</Text>
           <View style={styles.actionRow}>
-            <PrimaryButton icon="+" onPress={onOpenClients} style={styles.headerButton} title="Clientes" />
+            {canAccessClients ? (
+              <PrimaryButton icon="+" onPress={onOpenClients} style={styles.headerButton} title="Clientes" />
+            ) : null}
             <PrimaryButton
               icon=">"
               onPress={onOpenProducts}
@@ -279,7 +299,12 @@ export function HomeScreen({
               <PrimaryButton icon=">" onPress={onOpenFinance} style={styles.financeButton} title="Financeiro" />
             ) : null}
             {canManageTeam ? (
-              <PrimaryButton icon="+" onPress={onOpenTeam} style={styles.headerButton} title="Equipe" />
+              <PrimaryButton
+                icon="+"
+                onPress={canAccessAdmin ? onOpenAdmin : onOpenTeam}
+                style={styles.headerButton}
+                title="Funcionarios"
+              />
             ) : null}
             {canAccessAdmin ? (
               <PrimaryButton
@@ -290,13 +315,15 @@ export function HomeScreen({
                 variant="secondary"
               />
             ) : null}
-            <PrimaryButton
-              icon="~"
-              onPress={onOpenFirebaseDiagnostics}
-              style={styles.diagnosticsButton}
-              title="Diagnostico Firebase"
-              variant="secondary"
-            />
+            {canAccessAdmin ? (
+              <PrimaryButton
+                icon="~"
+                onPress={onOpenFirebaseDiagnostics}
+                style={styles.diagnosticsButton}
+                title="Diagnostico Firebase"
+                variant="secondary"
+              />
+            ) : null}
             <PrimaryButton icon="~" onPress={onSwitchProfile} style={styles.clientAreaButton} title="Trocar Perfil" />
             <PrimaryButton icon="x" onPress={onLogout} style={styles.headerButton} title="Sair" variant="danger" />
           </View>
@@ -532,6 +559,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
+  },
+  noticeCard: {
+    backgroundColor: "rgba(255, 193, 7, 0.12)",
+    borderColor: "rgba(255, 193, 7, 0.35)",
+  },
+  noticeText: {
+    color: colors.warning,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
   },
   productsButton: {
     alignSelf: "flex-start",

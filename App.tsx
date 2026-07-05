@@ -20,7 +20,9 @@ import { ProdutosScreen } from "./src/screens/produtos-screen";
 import { SplashScreen } from "./src/screens/splash-screen";
 import { AuthProvider, useAuthContext } from "./src/contexts/auth-context";
 import { clientesRepository } from "./src/repositories/clientes-repository";
+import { funcionariosRepository } from "./src/repositories/funcionarios-repository";
 import { piscinasRepository } from "./src/repositories/piscinas-repository";
+import { visitasRepository } from "./src/repositories/visitas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
@@ -29,8 +31,10 @@ import type { Client, ClientFormData, ClientPlan } from "./src/types/client";
 import type { Cliente } from "./src/types/cliente";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
+import type { Funcionario } from "./src/types/funcionario";
 import type { Piscina, PlanoAtendimento } from "./src/types/piscina";
 import type { UsuarioPerfil } from "./src/types/usuario";
+import type { Visita, VisitaOrigem, VisitaStatus } from "./src/types/visita";
 import {
   initialProductRequests,
   type ProductRequest,
@@ -153,8 +157,11 @@ function AppContent() {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientsError, setClientsError] = useState("");
   const [clientsLoading, setClientsLoading] = useState(false);
+  const [restrictedAccessMessage, setRestrictedAccessMessage] = useState("");
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
+  const [agendaError, setAgendaError] = useState("");
+  const [agendaLoading, setAgendaLoading] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatuses>({});
   const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
@@ -162,23 +169,39 @@ function AppContent() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const selectedClient = clients.find((client) => client.id === selectedClientId);
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
+  const authenticatedPerfil = authenticatedUserProfile?.perfil;
+  const isOperationalStaffView = isTestMode ? activeRole === "staff" : authenticatedPerfil === "funcionario";
+  const canAccessClients =
+    isTestMode ? activeRole === "owner" : authenticatedPerfil === "dono" || authenticatedPerfil === "socio";
+  const canAccessFinance =
+    isTestMode ? activeRole === "owner" : authenticatedPerfil === "dono" || authenticatedPerfil === "socio";
+  const canAccessAdmin = isTestMode ? activeRole === "owner" : authenticatedPerfil === "dono";
+  const canViewCommercialData = canAccessClients;
+  const isRestrictedEmployee = !isTestMode && authenticatedPerfil === "funcionario";
   const activeEmployee =
     authenticatedUserProfile?.funcionarioId
-      ? employees.find((employee) => employee.id === authenticatedUserProfile.funcionarioId) ?? employees[0]
+      ? employees.find((employee) => employee.id === authenticatedUserProfile.funcionarioId) ?? {
+          email: authenticatedUserProfile.email,
+          id: authenticatedUserProfile.funcionarioId,
+          name: authenticatedUserProfile.nome,
+          phone: "",
+          role: authenticatedUserProfile.perfil === "socio" ? ("partner" as const) : ("staff" as const),
+          status: "active" as const,
+        }
       : activeRole === "owner"
       ? employees.find((employee) => employee.role === "owner") ?? employees[0]
       : employees.find((employee) => employee.status === "active" && employee.role !== "owner") ?? employees[0];
   const visibleAgendaItems =
-    activeRole === "staff" && activeEmployee
+    isOperationalStaffView && activeEmployee
       ? agendaItems.filter((item) => item.assignedEmployeeId === activeEmployee.id)
       : agendaItems;
   const visibleAttendances =
-    activeRole === "staff" && activeEmployee
+    isOperationalStaffView && activeEmployee
       ? attendances.filter((attendance) => attendance.employeeId === activeEmployee.id)
       : attendances;
   const visibleClientNames = new Set(visibleAgendaItems.map((item) => item.clientName));
   const visibleProductRequests =
-    activeRole === "staff"
+    isOperationalStaffView
       ? productRequests.filter((request) => visibleClientNames.has(request.clientName))
       : productRequests;
   const productsPendingCount = visibleProductRequests.reduce(
@@ -189,9 +212,11 @@ function AppContent() {
   const pendingProductApprovalCount = visibleProductRequests.filter(
     (request) => request.status === "pending-approval",
   ).length;
-  const pendingPaymentCount = clients.filter(
-    (client) => hasMonthlyValue(client) && paymentStatuses[client.id] !== "paid",
-  ).length;
+  const pendingPaymentCount = canAccessFinance
+    ? clients.filter(
+        (client) => hasMonthlyValue(client) && paymentStatuses[client.id] !== "paid",
+      ).length
+    : 0;
   const completionSummary = {
     approvedProducts: visibleProductRequests.reduce(
       (total, request) =>
@@ -255,12 +280,9 @@ function AppContent() {
     },
   ];
   const visibleDashboardMetrics =
-    activeRole === "staff"
+    !canAccessFinance
       ? dashboardMetrics.filter((metric) => metric.id !== "payments")
       : dashboardMetrics;
-  const canAccessFinance = activeRole === "owner";
-  const canAccessAdmin =
-    authenticatedUserProfile?.perfil === "dono" || (isTestMode && activeRole === "owner");
   const profileLabel =
     activeRole === "staff" && activeEmployee
       ? `${getProfileLabel(activeRole)} - ${activeEmployee.name}`
@@ -295,12 +317,40 @@ function AppContent() {
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
 
   useEffect(() => {
-    if (authLoading || isTestMode || authenticatedUserProfile?.perfil !== "dono") {
+    if (
+      authLoading ||
+      isTestMode ||
+      (authenticatedUserProfile?.perfil !== "dono" && authenticatedUserProfile?.perfil !== "socio")
+    ) {
       return;
     }
 
     void loadFirestoreClients(authenticatedUserProfile.empresaId);
   }, [authLoading, authenticatedUserProfile?.empresaId, authenticatedUserProfile?.perfil, isTestMode]);
+
+  useEffect(() => {
+    if (authLoading || isTestMode || !authenticatedUserProfile) {
+      return;
+    }
+
+    void loadFirestoreEmployees(authenticatedUserProfile.empresaId);
+  }, [authLoading, authenticatedUserProfile?.empresaId, isTestMode]);
+
+  useEffect(() => {
+    if (authLoading || isTestMode || !authenticatedUserProfile) {
+      return;
+    }
+
+    void loadFirestoreAgenda(authenticatedUserProfile);
+  }, [
+    authLoading,
+    authenticatedUserProfile?.empresaId,
+    authenticatedUserProfile?.funcionarioId,
+    authenticatedUserProfile?.perfil,
+    clients,
+    employees,
+    isTestMode,
+  ]);
 
   useEffect(() => {
     if (authLoading || currentScreen !== "splash") {
@@ -313,6 +363,39 @@ function AppContent() {
         : "login"
     );
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
+
+  useEffect(() => {
+    const restrictedScreens: AppScreen[] = [
+      "admin",
+      "client-detail",
+      "clients",
+      "edit-client",
+      "finance",
+      "new-client",
+      "team",
+    ];
+
+    if (authLoading || !isRestrictedEmployee || !restrictedScreens.includes(currentScreen)) {
+      return;
+    }
+
+    blockRestrictedEmployeeAccess();
+  }, [authLoading, currentScreen, isRestrictedEmployee]);
+
+  function blockRestrictedEmployeeAccess() {
+    setRestrictedAccessMessage("Acesso restrito ao perfil funcionário.");
+    setCurrentScreen("home");
+  }
+
+  function openScreenWithPermission(screen: AppScreen, allowed: boolean) {
+    if (!allowed) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
+    setRestrictedAccessMessage("");
+    setCurrentScreen(screen);
+  }
 
   useEffect(() => {
     if (
@@ -333,6 +416,7 @@ function AppContent() {
   function handleLogin(role: TestUserRole) {
     setIsTestMode(true);
     setActiveRole(role);
+    setRestrictedAccessMessage("");
     setCurrentScreen(role === "client" ? "client-area" : "home");
   }
 
@@ -356,6 +440,7 @@ function AppContent() {
       }
 
       setActiveRole(mapUsuarioPerfilToTestRole(profile.perfil));
+      setRestrictedAccessMessage("");
       setCurrentScreen(getInitialScreenForPerfil(profile.perfil));
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
@@ -376,6 +461,7 @@ function AppContent() {
     }
 
     setIsTestMode(false);
+    setRestrictedAccessMessage("");
     setCurrentScreen("login");
   }
 
@@ -404,6 +490,80 @@ function AppContent() {
     } finally {
       setClientsLoading(false);
     }
+  }
+
+  async function loadFirestoreEmployees(empresaId: string) {
+    try {
+      const firestoreEmployees = await funcionariosRepository.listByEmpresa(empresaId);
+      const mappedEmployees = firestoreEmployees.map(mapFuncionarioToEmployee);
+
+      setEmployees((currentEmployees) => {
+        const ownerEmployee =
+          authenticatedUserProfile?.perfil === "dono"
+            ? {
+                email: authenticatedUserProfile.email,
+                id: authenticatedUserProfile.funcionarioId ?? authenticatedUserProfile.uid,
+                name: authenticatedUserProfile.nome,
+                phone: "",
+                role: "owner" as const,
+                status: "active" as const,
+              }
+            : currentEmployees.find((employee) => employee.role === "owner");
+
+        return ownerEmployee ? [ownerEmployee, ...mappedEmployees] : mappedEmployees;
+      });
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar funcionarios do Firestore."));
+    }
+  }
+
+  async function loadFirestoreAgenda(profile: NonNullable<typeof authenticatedUserProfile>) {
+    setAgendaLoading(true);
+    setAgendaError("");
+
+    try {
+      const firestoreVisits =
+        profile.perfil === "dono" || profile.perfil === "socio" || !profile.funcionarioId
+          ? await visitasRepository.listByEmpresa(profile.empresaId)
+          : await visitasRepository.listByFuncionario(profile.empresaId, profile.funcionarioId);
+      const agendaClients =
+        profile.perfil === "funcionario"
+          ? await loadOperationalClientsForVisits(firestoreVisits)
+          : clients;
+
+      if (profile.perfil === "funcionario") {
+        setClients((currentClients) =>
+          haveSameOperationalClients(currentClients, agendaClients) ? currentClients : agendaClients,
+        );
+      }
+
+      setAgendaItems(firestoreVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees)));
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar a agenda do Firestore."));
+    } finally {
+      setAgendaLoading(false);
+    }
+  }
+
+  async function loadOperationalClientsForVisits(visits: Visita[]) {
+    const uniqueClienteIds = Array.from(new Set(visits.map((visit) => visit.clienteId).filter(Boolean)));
+    const uniquePiscinaIds = Array.from(new Set(visits.map((visit) => visit.piscinaId).filter(Boolean)));
+    const [visitClients, visitPools] = await Promise.all([
+      Promise.all(uniqueClienteIds.map((clienteId) => clientesRepository.getById(clienteId))),
+      Promise.all(uniquePiscinaIds.map((piscinaId) => piscinasRepository.getById(piscinaId))),
+    ]);
+    const validPools = visitPools.filter((pool): pool is Piscina => Boolean(pool));
+    const validClients = visitClients.filter(
+      (client): client is Cliente => client !== null && client.status !== "inativo",
+    );
+
+    return validClients
+      .map((client) =>
+        mapFirestoreClientToOperationalClient(
+          client,
+          validPools.find((pool) => pool.clienteId === client.id && pool.status !== "inativa"),
+        ),
+      );
   }
 
   async function handleSaveClient(clientData: ClientFormData) {
@@ -598,21 +758,57 @@ function AppContent() {
     }
   }
 
-  function handleUpdateAgendaStatus(agendaItemId: string, status: AgendaStatus) {
+  async function handleUpdateAgendaStatus(agendaItemId: string, status: AgendaStatus) {
+    if (!isTestMode && authenticatedUserProfile) {
+      try {
+        await visitasRepository.update(agendaItemId, {
+          status: mapAgendaStatusToVisitaStatus(status),
+        });
+      } catch (error) {
+        setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel atualizar a visita no Firestore."));
+        return;
+      }
+    }
+
     setAgendaItems((currentItems) =>
       currentItems.map((item) => (item.id === agendaItemId ? { ...item, status } : item)),
     );
   }
 
-  function handleAddAgendaItem(client: Client, visitDate: string) {
+  async function handleAddAgendaItem(client: Client, visitDate: string) {
     const defaultEmployee = activeEmployee ?? employees[0];
+    let visitId = String(Date.now());
+
+    if (!isTestMode && authenticatedUserProfile) {
+      if (!client.piscinaId) {
+        setAgendaError("Este cliente ainda nao possui piscina principal vinculada no Firestore.");
+        return;
+      }
+
+      try {
+        visitId = await visitasRepository.create({
+          clienteId: client.id,
+          data: visitDate,
+          empresaId: authenticatedUserProfile.empresaId,
+          funcionarioId: defaultEmployee?.id,
+          origem: "manual",
+          piscinaId: client.piscinaId,
+          status: "pendente",
+        });
+      } catch (error) {
+        setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel criar a visita no Firestore."));
+        return;
+      }
+    }
+
     const agendaItem: AgendaItem = {
       address: client.address,
       clientId: client.id,
       clientName: client.name,
       data: visitDate,
-      id: String(Date.now()),
+      id: visitId,
       neighborhood: client.neighborhood,
+      piscinaId: client.piscinaId,
       assignedEmployeeId: defaultEmployee?.id,
       assignedEmployeeName: defaultEmployee?.name,
       funcionarioId: defaultEmployee?.id,
@@ -624,11 +820,22 @@ function AppContent() {
     setAgendaItems((currentItems) => [...currentItems, agendaItem]);
   }
 
-  function handleAssignAgendaItem(agendaItemId: string, employeeId: string) {
+  async function handleAssignAgendaItem(agendaItemId: string, employeeId: string) {
     const employee = employees.find((currentEmployee) => currentEmployee.id === employeeId);
 
     if (!employee) {
       return;
+    }
+
+    if (!isTestMode && authenticatedUserProfile) {
+      try {
+        await visitasRepository.update(agendaItemId, {
+          funcionarioId: employee.id,
+        });
+      } catch (error) {
+        setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel atribuir a visita no Firestore."));
+        return;
+      }
     }
 
     setAgendaItems((currentItems) =>
@@ -645,7 +852,7 @@ function AppContent() {
     );
   }
 
-  function handleAssignClientsToEmployee(employeeId: string, clientIds: string[]) {
+  async function handleAssignClientsToEmployee(employeeId: string, clientIds: string[]) {
     const employee = employees.find((currentEmployee) => currentEmployee.id === employeeId);
 
     if (!employee) {
@@ -653,6 +860,45 @@ function AppContent() {
     }
 
     const todayLabel = new Date().toLocaleDateString("pt-BR");
+    const firestoreAssignedIds = new Map<string, string>();
+
+    if (!isTestMode && authenticatedUserProfile) {
+      try {
+        for (const clientId of clientIds) {
+          const client = clients.find((currentClient) => currentClient.id === clientId);
+
+          if (!client?.piscinaId) {
+            continue;
+          }
+
+          const existingItem = agendaItems.find(
+            (item) => item.clientId === client.id || item.clientName === client.name,
+          );
+
+          if (existingItem) {
+            await visitasRepository.update(existingItem.id, {
+              funcionarioId: employee.id,
+              origem: "manual",
+            });
+            firestoreAssignedIds.set(client.id, existingItem.id);
+          } else {
+            const visitId = await visitasRepository.create({
+              clienteId: client.id,
+              data: todayLabel,
+              empresaId: authenticatedUserProfile.empresaId,
+              funcionarioId: employee.id,
+              origem: "manual",
+              piscinaId: client.piscinaId,
+              status: "pendente",
+            });
+            firestoreAssignedIds.set(client.id, visitId);
+          }
+        }
+      } catch (error) {
+        setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel salvar as atribuicoes no Firestore."));
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel salvar as atribuicoes no Firestore."));
+      }
+    }
 
     setAgendaItems((currentItems) => {
       const selectedClientIds = new Set(clientIds);
@@ -688,8 +934,9 @@ function AppContent() {
           clientId: client.id,
           clientName: client.name,
           data: todayLabel,
-          id: existingIndex >= 0 ? nextItems[existingIndex].id : `${Date.now()}-${client.id}`,
+          id: firestoreAssignedIds.get(client.id) ?? (existingIndex >= 0 ? nextItems[existingIndex].id : `${Date.now()}-${client.id}`),
           neighborhood: client.neighborhood,
+          piscinaId: client.piscinaId,
           assignedEmployeeId: employee.id,
           assignedEmployeeName: employee.name,
           funcionarioId: employee.id,
@@ -712,9 +959,9 @@ function AppContent() {
     });
   }
 
-  function handleStartAgendaAttendance(agendaItem: AgendaItem) {
+  async function handleStartAgendaAttendance(agendaItem: AgendaItem) {
     setSelectedAgendaItemId(agendaItem.id);
-    handleUpdateAgendaStatus(agendaItem.id, "in-progress");
+    await handleUpdateAgendaStatus(agendaItem.id, "in-progress");
     setCurrentScreen("attendance");
   }
 
@@ -833,23 +1080,26 @@ function AppContent() {
       {currentScreen === "home" ? (
         <HomeScreen
           agendaItems={visibleAgendaItems}
+          canAccessClients={canAccessClients}
           canAccessFinance={canAccessFinance}
           canAccessAdmin={canAccessAdmin}
+          canViewCommercialData={canViewCommercialData}
           clients={clients}
           completionSummary={completionSummary}
           dashboardMetrics={visibleDashboardMetrics}
           employeeSummaries={activeRole === "owner" ? employeeSummaries : []}
-          canManageTeam={activeRole === "owner"}
-          onOpenClients={() => setCurrentScreen("clients")}
+          canManageTeam={canAccessAdmin}
+          noticeMessage={restrictedAccessMessage}
+          onOpenClients={() => openScreenWithPermission("clients", canAccessClients)}
           onOpenProducts={() => setCurrentScreen("products")}
           onOpenAttendance={handleOpenStandaloneAttendance}
           onOpenHistory={() => setCurrentScreen("history")}
           onOpenAgenda={() => setCurrentScreen("agenda")}
-          onOpenFinance={() => setCurrentScreen("finance")}
+          onOpenFinance={() => openScreenWithPermission("finance", canAccessFinance)}
           onOpenFirebaseDiagnostics={() => setCurrentScreen("firebase-diagnostics")}
           onOpenClientArea={() => setCurrentScreen("client-area")}
-          onOpenTeam={() => setCurrentScreen("team")}
-          onOpenAdmin={() => setCurrentScreen("admin")}
+          onOpenTeam={() => openScreenWithPermission("admin", canAccessAdmin)}
+          onOpenAdmin={() => openScreenWithPermission("admin", canAccessAdmin)}
           onStartAttendance={handleStartAgendaAttendance}
           onSwitchProfile={handleSwitchProfile}
           onLogout={handleSwitchProfile}
@@ -857,7 +1107,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "clients" ? (
+      {currentScreen === "clients" && canAccessClients ? (
         <ClientsScreen
           clients={clients}
           errorMessage={clientsError}
@@ -868,14 +1118,14 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "new-client" ? (
+      {currentScreen === "new-client" && canAccessClients ? (
         <NewClientScreen
           onBack={() => setCurrentScreen("clients")}
           onSave={handleSaveClient}
         />
       ) : null}
 
-      {currentScreen === "client-detail" && selectedClient ? (
+      {currentScreen === "client-detail" && selectedClient && canAccessClients ? (
         <ClientDetailScreen
           client={selectedClient}
           onBack={() => setCurrentScreen("clients")}
@@ -884,7 +1134,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "edit-client" && selectedClient ? (
+      {currentScreen === "edit-client" && selectedClient && canAccessClients ? (
         <EditClientScreen
           client={selectedClient}
           onBack={() => setCurrentScreen("client-detail")}
@@ -903,6 +1153,7 @@ function AppContent() {
 
       {currentScreen === "attendance" ? (
         <AtendimentoScreen
+          canViewCommercialData={canViewCommercialData}
           clients={clients}
           onBack={() => setCurrentScreen("home")}
           onSaveAttendance={handleSaveAttendance}
@@ -922,22 +1173,26 @@ function AppContent() {
       {currentScreen === "agenda" ? (
         <AgendaScreen
           agendaItems={visibleAgendaItems}
+          canViewCommercialData={canViewCommercialData}
           clients={clients}
           employees={employees.filter((employee) => employee.status === "active")}
+          errorMessage={agendaError}
+          loading={agendaLoading}
           onBack={() => setCurrentScreen("home")}
           onAddAgendaItem={handleAddAgendaItem}
           onAssignAgendaItem={handleAssignAgendaItem}
-          canDistribute={activeRole === "owner"}
+          canDistribute={canAccessAdmin}
           onStartAttendance={handleStartAgendaAttendance}
           onUpdateStatus={handleUpdateAgendaStatus}
         />
       ) : null}
 
-      {currentScreen === "team" ? (
+      {currentScreen === "team" && canAccessAdmin ? (
         <EquipeScreen
           agendaItems={agendaItems}
           clients={clients}
           employees={employees}
+          errorMessage={agendaError}
           onBack={() => setCurrentScreen("home")}
           onAssignClientsToEmployee={handleAssignClientsToEmployee}
           onCreateEmployee={handleCreateEmployee}
@@ -946,11 +1201,19 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "admin" ? (
+      {currentScreen === "admin" && canAccessAdmin ? (
         <AdministracaoScreen
+          agendaItems={agendaItems}
+          clients={clients}
           empresaId={authenticatedUserProfile?.empresaId}
           isOwner={canAccessAdmin}
+          onAssignClientsToEmployee={handleAssignClientsToEmployee}
           onBack={() => setCurrentScreen("home")}
+          onEmployeesChanged={() => {
+            if (authenticatedUserProfile?.empresaId) {
+              void loadFirestoreEmployees(authenticatedUserProfile.empresaId);
+            }
+          }}
         />
       ) : null}
 
@@ -1034,6 +1297,104 @@ function mapFirestoreClientToAppClient(cliente: Cliente, piscina?: Piscina): Cli
     valorMensal: piscina?.valorMensal ?? 0,
     weekDays: [],
   };
+}
+
+function mapFirestoreClientToOperationalClient(cliente: Cliente, piscina?: Piscina): Client {
+  return {
+    address: cliente.endereco ?? "",
+    city: cliente.cidade ?? "",
+    diaVencimento: 1,
+    email: "",
+    frequency: "once",
+    id: cliente.id,
+    liters: piscina?.litros,
+    name: cliente.nome,
+    neighborhood: cliente.bairro ?? "",
+    notes: piscina?.observacoes ?? "",
+    phone: "",
+    piscinaId: piscina?.id,
+    plan: "monthly",
+    poolType: piscina?.tipo ?? "",
+    referencePhotoUri: piscina?.fotoReferenciaUrl,
+    valorMensal: 0,
+    weekDays: [],
+  };
+}
+
+function haveSameOperationalClients(currentClients: Client[], nextClients: Client[]) {
+  if (currentClients.length !== nextClients.length) {
+    return false;
+  }
+
+  return nextClients.every((nextClient) => {
+    const currentClient = currentClients.find((client) => client.id === nextClient.id);
+
+    return (
+      currentClient?.address === nextClient.address &&
+      currentClient?.name === nextClient.name &&
+      currentClient?.neighborhood === nextClient.neighborhood &&
+      currentClient?.piscinaId === nextClient.piscinaId &&
+      currentClient?.poolType === nextClient.poolType &&
+      currentClient?.referencePhotoUri === nextClient.referencePhotoUri &&
+      currentClient?.liters === nextClient.liters
+    );
+  });
+}
+
+function mapFirestoreVisitToAgendaItem(visit: Visita, currentClients: Client[], currentEmployees: Employee[]): AgendaItem {
+  const client = currentClients.find((currentClient) => currentClient.id === visit.clienteId);
+  const employee = currentEmployees.find((currentEmployee) => currentEmployee.id === visit.funcionarioId);
+
+  return {
+    address: client?.address ?? "Endereco nao informado",
+    assignedEmployeeId: visit.funcionarioId,
+    assignedEmployeeName: employee?.name,
+    clientId: visit.clienteId,
+    clientName: client?.name ?? "Cliente nao encontrado",
+    data: visit.data,
+    funcionarioId: visit.funcionarioId,
+    id: visit.id,
+    neighborhood: client?.neighborhood ?? "Bairro nao informado",
+    origem: mapVisitaOrigemToAgendaOrigem(visit.origem),
+    piscinaId: visit.piscinaId,
+    status: mapVisitaStatusToAgendaStatus(visit.status),
+    visitDate: visit.data,
+  };
+}
+
+function mapFuncionarioToEmployee(funcionario: Funcionario): Employee {
+  return {
+    email: funcionario.email ?? "",
+    id: funcionario.id,
+    name: funcionario.nome,
+    phone: funcionario.telefone ?? "",
+    role: funcionario.funcao === "socio" ? "partner" : "staff",
+    status: funcionario.status === "ativo" ? "active" : "inactive",
+  };
+}
+
+function mapAgendaStatusToVisitaStatus(status: AgendaStatus): VisitaStatus {
+  const statuses: Record<AgendaStatus, VisitaStatus> = {
+    finished: "concluida",
+    "in-progress": "em andamento",
+    pending: "pendente",
+  };
+
+  return statuses[status];
+}
+
+function mapVisitaStatusToAgendaStatus(status: VisitaStatus): AgendaStatus {
+  const statuses: Record<VisitaStatus, AgendaStatus> = {
+    concluida: "finished",
+    "em andamento": "in-progress",
+    pendente: "pending",
+  };
+
+  return statuses[status];
+}
+
+function mapVisitaOrigemToAgendaOrigem(origem: VisitaOrigem): NonNullable<AgendaItem["origem"]> {
+  return origem === "manual" ? "Manual" : "Automatica";
 }
 
 function mapClientPlanToPlanoAtendimento(plan: ClientPlan): PlanoAtendimento {

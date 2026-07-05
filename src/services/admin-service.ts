@@ -1,10 +1,12 @@
 import { sendPasswordResetEmail } from "firebase/auth";
-import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 import { firebaseConfig } from "../firebase/config";
 import { getFirebaseAuth } from "../firebase/auth";
 import { getFirebaseFirestore } from "../firebase/firestore";
+import { funcionariosRepository } from "../repositories/funcionarios-repository";
 import { usuariosRepository } from "../repositories/usuarios-repository";
+import type { Funcionario } from "../types/funcionario";
 import type { Usuario, UsuarioPerfil } from "../types/usuario";
 
 export type AdminCreateUserInput = {
@@ -64,8 +66,73 @@ export const adminService = {
     return usuariosRepository.listByEmpresa(empresaId);
   },
 
+  listarFuncionarios(empresaId: string) {
+    return funcionariosRepository.listByEmpresa(empresaId);
+  },
+
+  async sincronizarFuncionarios(empresaId: string): Promise<number> {
+    const [usuarios, funcionarios] = await Promise.all([
+      usuariosRepository.listByEmpresa(empresaId),
+      funcionariosRepository.listByEmpresa(empresaId),
+    ]);
+    let syncedCount = 0;
+
+    for (const usuario of usuarios) {
+      if (usuario.perfil !== "funcionario" && usuario.perfil !== "socio") {
+        continue;
+      }
+
+      const funcionarioByUsuario = funcionarios.find((funcionario) => funcionario.usuarioId === usuario.id);
+      const funcionarioById = usuario.funcionarioId
+        ? funcionarios.find((funcionario) => funcionario.id === usuario.funcionarioId)
+        : undefined;
+      const existingFuncionario = funcionarioByUsuario ?? funcionarioById;
+
+      if (existingFuncionario) {
+        await Promise.all([
+          funcionariosRepository.update(existingFuncionario.id, {
+            cargo: usuario.cargo ?? "",
+            email: usuario.email,
+            empresaId: usuario.empresaId,
+            funcao: usuario.perfil,
+            nome: usuario.nome,
+            status: isUsuarioAtivo(usuario) ? "ativo" : "inativo",
+            telefone: usuario.telefone ?? "",
+            usuarioId: usuario.id,
+          }),
+          usuario.funcionarioId === existingFuncionario.id
+            ? Promise.resolve()
+            : usuariosRepository.update(usuario.id, { funcionarioId: existingFuncionario.id }),
+        ]);
+        syncedCount += usuario.funcionarioId === existingFuncionario.id ? 0 : 1;
+        continue;
+      }
+
+      const funcionarioId = usuario.funcionarioId || doc(collection(getFirebaseFirestore(), "funcionarios")).id;
+
+      await funcionariosRepository.createWithId(funcionarioId, {
+        cargo: usuario.cargo ?? "",
+        email: usuario.email,
+        empresaId: usuario.empresaId,
+        funcao: usuario.perfil,
+        nome: usuario.nome,
+        status: isUsuarioAtivo(usuario) ? "ativo" : "inativo",
+        telefone: usuario.telefone ?? "",
+        usuarioId: usuario.id,
+      });
+      await usuariosRepository.update(usuario.id, { funcionarioId });
+      syncedCount += 1;
+    }
+
+    return syncedCount;
+  },
+
   async criarUsuario(input: AdminCreateUserInput): Promise<string> {
     const uid = await createAuthUserWithRestApi(input.email.trim(), input.senhaTemporaria);
+    const funcionarioId =
+      input.perfil === "funcionario" || input.perfil === "socio"
+        ? doc(collection(getFirebaseFirestore(), "funcionarios")).id
+        : undefined;
 
     await setDoc(doc(getFirebaseFirestore(), "usuarios", uid), {
       ativo: true,
@@ -74,6 +141,7 @@ export const adminService = {
       criadoEm: serverTimestamp(),
       email: input.email.trim(),
       empresaId: input.empresaId,
+      funcionarioId: funcionarioId ?? null,
       nome: input.nome.trim(),
       perfil: input.perfil,
       status: "ativo",
@@ -81,10 +149,25 @@ export const adminService = {
       atualizadoEm: serverTimestamp(),
     });
 
+    if (funcionarioId && (input.perfil === "funcionario" || input.perfil === "socio")) {
+      await funcionariosRepository.createWithId(funcionarioId, {
+        cargo: input.cargo?.trim() || "",
+        email: input.email.trim(),
+        empresaId: input.empresaId,
+        funcao: input.perfil,
+        nome: input.nome.trim(),
+        status: "ativo",
+        telefone: input.telefone?.trim() || "",
+        usuarioId: uid,
+      });
+    }
+
     return uid;
   },
 
   async atualizarUsuario(uid: string, input: AdminUpdateUserInput): Promise<void> {
+    const funcionario = await getFuncionarioByUsuario(uid);
+
     await updateDoc(doc(getFirebaseFirestore(), "usuarios", uid), {
       ativo: input.ativo,
       cargo: input.cargo?.trim() || null,
@@ -93,14 +176,31 @@ export const adminService = {
       telefone: input.telefone?.trim() || null,
       atualizadoEm: serverTimestamp(),
     });
+
+    if (funcionario) {
+      await funcionariosRepository.update(funcionario.id, {
+        cargo: input.cargo?.trim() || "",
+        nome: input.nome.trim(),
+        status: input.ativo ? "ativo" : "inativo",
+        telefone: input.telefone?.trim() || "",
+      });
+    }
   },
 
   async desativarUsuario(uid: string): Promise<void> {
+    const funcionario = await getFuncionarioByUsuario(uid);
+
     await updateDoc(doc(getFirebaseFirestore(), "usuarios", uid), {
       ativo: false,
       status: "inativo",
       atualizadoEm: serverTimestamp(),
     });
+
+    if (funcionario) {
+      await funcionariosRepository.update(funcionario.id, {
+        status: "inativo",
+      });
+    }
   },
 
   async resetarSenha(email: string): Promise<void> {
@@ -108,6 +208,15 @@ export const adminService = {
   },
 
   usuarioEstaAtivo(usuario: Usuario) {
-    return usuario.ativo ?? usuario.status === "ativo";
+    return isUsuarioAtivo(usuario);
   },
 };
+
+function isUsuarioAtivo(usuario: Usuario) {
+  return usuario.ativo ?? usuario.status === "ativo";
+}
+
+async function getFuncionarioByUsuario(usuarioId: string): Promise<Funcionario | null> {
+  const funcionarios = await funcionariosRepository.listByUsuario(usuarioId);
+  return funcionarios[0] ?? null;
+}

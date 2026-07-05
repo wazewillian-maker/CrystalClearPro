@@ -9,12 +9,19 @@ import { ScreenHeader } from "../components/screen-header";
 import { StatusBadge } from "../components/status-badge";
 import { adminService, type AdminCreateUserInput } from "../services/admin-service";
 import colors from "../theme/colors";
+import type { AgendaItem } from "../types/agenda";
+import type { Client } from "../types/client";
+import type { Funcionario } from "../types/funcionario";
 import type { Usuario, UsuarioPerfil } from "../types/usuario";
 
 type AdministracaoScreenProps = {
+  agendaItems?: AgendaItem[];
+  clients?: Client[];
   empresaId?: string;
   isOwner: boolean;
   onBack: () => void;
+  onAssignClientsToEmployee?: (employeeId: string, clientIds: string[]) => Promise<void> | void;
+  onEmployeesChanged?: () => void;
 };
 
 type CreateMode = Extract<UsuarioPerfil, "funcionario" | "socio" | "cliente">;
@@ -62,8 +69,17 @@ function getCargoValue(selectedCargo: CargoOption, customCargo: string) {
   return selectedCargo === "Outro" ? customCargo.trim() : selectedCargo;
 }
 
-export function AdministracaoScreen({ empresaId, isOwner, onBack }: AdministracaoScreenProps) {
+export function AdministracaoScreen({
+  agendaItems = [],
+  clients = [],
+  empresaId,
+  isOwner,
+  onAssignClientsToEmployee,
+  onBack,
+  onEmployeesChanged,
+}: AdministracaoScreenProps) {
   const [usuarios, setUsuarios] = React.useState<Usuario[]>([]);
+  const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
   const [loadingUsers, setLoadingUsers] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [message, setMessage] = React.useState("");
@@ -87,6 +103,9 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
     nome: "",
     telefone: "",
   });
+  const [assigningFuncionarioId, setAssigningFuncionarioId] = React.useState<string | null>(null);
+  const [selectedClientIds, setSelectedClientIds] = React.useState<string[]>([]);
+  const assigningFuncionario = funcionarios.find((funcionario) => funcionario.id === assigningFuncionarioId);
 
   const loadUsers = React.useCallback(async () => {
     if (!empresaId || !isOwner) {
@@ -95,7 +114,12 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
 
     setLoadingUsers(true);
     try {
-      setUsuarios(await adminService.listarUsuarios(empresaId));
+      const [loadedUsers, loadedEmployees] = await Promise.all([
+        adminService.listarUsuarios(empresaId),
+        adminService.listarFuncionarios(empresaId),
+      ]);
+      setUsuarios(loadedUsers);
+      setFuncionarios(loadedEmployees);
     } catch (error) {
       showError(getAdminErrorMessage(error));
     } finally {
@@ -199,6 +223,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
       resetCreateForm();
       showSuccess(createdMessageLabels[createMode]);
       await loadUsers();
+      onEmployeesChanged?.();
     } catch (error) {
       showError(getAdminErrorMessage(error));
     } finally {
@@ -255,6 +280,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
       setEditingUser(null);
       showSuccess("Usuário atualizado com sucesso.");
       await loadUsers();
+      onEmployeesChanged?.();
     } catch (error) {
       showError(getAdminErrorMessage(error));
     } finally {
@@ -270,6 +296,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
       await adminService.desativarUsuario(usuario.id);
       showSuccess("Usuário desativado com sucesso.");
       await loadUsers();
+      onEmployeesChanged?.();
     } catch (error) {
       showError(getAdminErrorMessage(error));
     } finally {
@@ -284,6 +311,70 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
     try {
       await adminService.resetarSenha(usuario.email);
       showSuccess(`E-mail de redefinição enviado para ${usuario.email}.`);
+    } catch (error) {
+      showError(getAdminErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function startAssignPools(funcionario: Funcionario) {
+    const assignedClientIds = agendaItems
+      .filter((item) => item.assignedEmployeeId === funcionario.id)
+      .map((item) => item.clientId)
+      .filter((clientId): clientId is string => Boolean(clientId));
+
+    setAssigningFuncionarioId(funcionario.id);
+    setSelectedClientIds(assignedClientIds);
+    setMessage("");
+  }
+
+  function toggleClientAssignment(clientId: string) {
+    setSelectedClientIds((currentIds) =>
+      currentIds.includes(clientId)
+        ? currentIds.filter((currentId) => currentId !== clientId)
+        : [...currentIds, clientId],
+    );
+  }
+
+  async function handleSaveAssignments() {
+    if (!assigningFuncionario || !onAssignClientsToEmployee) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      await onAssignClientsToEmployee(assigningFuncionario.id, selectedClientIds);
+      setAssigningFuncionarioId(null);
+      setSelectedClientIds([]);
+      showSuccess("Piscinas atribuidas com sucesso.");
+    } catch (error) {
+      showError(getAdminErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSyncEmployees() {
+    if (!empresaId) {
+      showError("Entre com login real de Dono para sincronizar funcionarios.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const syncedCount = await adminService.sincronizarFuncionarios(empresaId);
+      await loadUsers();
+      onEmployeesChanged?.();
+      showSuccess(
+        syncedCount > 0
+          ? `${syncedCount} funcionario(s) sincronizado(s).`
+          : "Funcionarios ja estavam sincronizados.",
+      );
     } catch (error) {
       showError(getAdminErrorMessage(error));
     } finally {
@@ -339,6 +430,173 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
             </Text>
           </AppCard>
         ) : null}
+
+        <AppCard style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleBlock}>
+              <Text style={styles.sectionTitle}>Funcionarios</Text>
+              <Text selectable style={styles.sectionSubtitle}>
+                {loadingUsers ? "Carregando funcionarios..." : `${funcionarios.length} funcionario(s) reais`}
+              </Text>
+            </View>
+            <PrimaryButton
+              icon="â†»"
+              loading={saving}
+              onPress={handleSyncEmployees}
+              style={styles.syncButton}
+              title="Sincronizar funcionarios"
+              variant="secondary"
+            />
+          </View>
+
+          <View style={styles.userList}>
+            {funcionarios.length > 0 ? (
+              funcionarios.map((funcionario) => {
+                const usuario = usuarios.find((currentUser) => currentUser.id === funcionario.usuarioId);
+                const assignedItems = agendaItems.filter((item) => item.assignedEmployeeId === funcionario.id);
+                const pendingItems = assignedItems.filter((item) => item.status !== "finished");
+                const finishedItems = assignedItems.filter((item) => item.status === "finished");
+
+                return (
+                  <AppCard key={funcionario.id} style={styles.userCard}>
+                    <View style={styles.userHeader}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>{getInitials(funcionario.nome)}</Text>
+                      </View>
+                      <View style={styles.userInfo}>
+                        <Text selectable style={styles.userName}>
+                          {funcionario.nome}
+                        </Text>
+                        <Text selectable style={styles.userDetail}>
+                          {funcionario.email || "E-mail nao informado"}
+                        </Text>
+                        <Text selectable style={styles.userDetail}>
+                          Cargo: {funcionario.cargo || "Nao informado"}
+                        </Text>
+                        <Text selectable style={styles.userDetail}>
+                          Funcao: {funcionario.funcao === "socio" ? "Socio" : "Funcionario"}
+                        </Text>
+                      </View>
+                      <StatusBadge
+                        label={funcionario.status === "ativo" ? "Ativo" : "Inativo"}
+                        tone={funcionario.status === "ativo" ? "approved" : "rejected"}
+                      />
+                    </View>
+
+                    <View style={styles.metricsRow}>
+                      <MiniMetric label="Atribuidas" value={assignedItems.length} />
+                      <MiniMetric label="Pendentes" value={pendingItems.length} />
+                      <MiniMetric label="Concluidas" value={finishedItems.length} />
+                    </View>
+
+                    <View style={styles.cardActions}>
+                      <PrimaryButton
+                        icon="+"
+                        onPress={() => startAssignPools(funcionario)}
+                        style={styles.resetButton}
+                        title="Atribuir piscinas"
+                      />
+                      {usuario ? (
+                        <PrimaryButton
+                          icon="âœŽ"
+                          onPress={() => startEdit(usuario)}
+                          style={styles.actionButton}
+                          title="Editar"
+                          variant="secondary"
+                        />
+                      ) : null}
+                      {usuario ? (
+                        <PrimaryButton
+                          icon="â†º"
+                          onPress={() => handlePasswordReset(usuario)}
+                          style={styles.resetButton}
+                          title="Redefinir senha"
+                          variant="secondary"
+                        />
+                      ) : null}
+                      {usuario && funcionario.status === "ativo" ? (
+                        <PrimaryButton
+                          icon="Ã—"
+                          onPress={() => handleDeactivateUser(usuario)}
+                          style={styles.actionButton}
+                          title="Inativar"
+                          variant="danger"
+                        />
+                      ) : null}
+                    </View>
+                  </AppCard>
+                );
+              })
+            ) : (
+              <Text selectable style={styles.emptyText}>
+                Nenhum funcionario real cadastrado ainda.
+              </Text>
+            )}
+          </View>
+
+          {assigningFuncionario ? (
+            <AppCard style={styles.assignmentPanel}>
+              <Text style={styles.sectionTitle}>Atribuir piscinas para {assigningFuncionario.nome}</Text>
+              <Text selectable style={styles.sectionSubtitle}>
+                Selecione uma ou varias piscinas reais cadastradas no Firestore.
+              </Text>
+
+              <View style={styles.assignmentList}>
+                {clients.length > 0 ? (
+                  clients.map((client) => {
+                    const selected = selectedClientIds.includes(client.id);
+                    const currentAssignment = agendaItems.find((item) => item.clientId === client.id);
+                    const assignedToAnother =
+                      currentAssignment?.assignedEmployeeId &&
+                      currentAssignment.assignedEmployeeId !== assigningFuncionario.id;
+
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={client.id}
+                        onPress={() => toggleClientAssignment(client.id)}
+                        style={({ pressed }) => [
+                          styles.assignmentItem,
+                          selected && styles.assignmentItemSelected,
+                          pressed && styles.modeOptionPressed,
+                        ]}
+                      >
+                        <Text selectable style={styles.userName}>
+                          {client.name}
+                        </Text>
+                        <Text selectable style={styles.userDetail}>
+                          {client.neighborhood} - {client.address}
+                        </Text>
+                        <Text selectable style={[styles.userDetail, assignedToAnother && styles.warningText]}>
+                          {currentAssignment?.assignedEmployeeName
+                            ? `Atribuida para ${currentAssignment.assignedEmployeeName}`
+                            : "Sem responsavel atribuido"}
+                        </Text>
+                        <Text style={styles.assignmentStatus}>{selected ? "Selecionada" : "Selecionar"}</Text>
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <Text selectable style={styles.emptyText}>
+                    Cadastre clientes e piscinas antes de atribuir.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.fullWidthActions}>
+                <PrimaryButton loading={saving} onPress={handleSaveAssignments} title="Salvar atribuicoes" />
+                <PrimaryButton
+                  onPress={() => {
+                    setAssigningFuncionarioId(null);
+                    setSelectedClientIds([]);
+                  }}
+                  title="Cancelar"
+                  variant="secondary"
+                />
+              </View>
+            </AppCard>
+          ) : null}
+        </AppCard>
 
         <AppCard style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -586,6 +844,15 @@ type CargoSelectProps = {
   selectedCargo: CargoOption;
 };
 
+function MiniMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.metric}>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
+    </View>
+  );
+}
+
 function CargoSelect({
   customCargo,
   isOpen,
@@ -672,6 +939,32 @@ const styles = StyleSheet.create({
     height: 44,
     width: 126,
   },
+  assignmentItem: {
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 5,
+    padding: 12,
+  },
+  assignmentItemSelected: {
+    backgroundColor: "rgba(21, 101, 255, 0.28)",
+    borderColor: colors.primaryLight,
+  },
+  assignmentList: {
+    gap: 10,
+  },
+  assignmentPanel: {
+    backgroundColor: "rgba(13, 43, 77, 0.72)",
+    gap: 14,
+  },
+  assignmentStatus: {
+    color: colors.primaryLight,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
   avatar: {
     alignItems: "center",
     backgroundColor: "rgba(21, 101, 255, 0.28)",
@@ -731,6 +1024,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     lineHeight: 22,
+  },
+  metric: {
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    gap: 4,
+    minWidth: 92,
+    padding: 12,
+  },
+  metricLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  metricValue: {
+    color: colors.white,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  metricsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
   },
   modeOption: {
     alignItems: "center",
@@ -803,6 +1122,10 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 5,
     minWidth: 220,
+  },
+  syncButton: {
+    height: 44,
+    width: 226,
   },
   selectButton: {
     alignItems: "center",
@@ -880,5 +1203,8 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins",
     fontSize: 18,
     fontWeight: "900",
+  },
+  warningText: {
+    color: colors.warning,
   },
 });

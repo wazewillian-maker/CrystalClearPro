@@ -35,6 +35,7 @@ const checklistItems: ChecklistItem[] = [
 ];
 
 type AtendimentoScreenProps = {
+  canViewCommercialData?: boolean;
   clients?: Client[];
   onBack: () => void;
   onSaveAttendance: (attendance: AttendanceRecord) => void;
@@ -43,6 +44,7 @@ type AtendimentoScreenProps = {
 };
 
 export function AtendimentoScreen({
+  canViewCommercialData = true,
   clients = [],
   onBack,
   onSaveAttendance,
@@ -248,7 +250,9 @@ export function AtendimentoScreen({
             {selectedClient
               ? `${selectedClient.poolType || "Tipo nao informado"} - ${
                   typeof selectedClient.liters === "number" ? `${selectedClient.liters} litros` : "volume nao informado"
-                } - ${selectedClient.city} - Plano: ${clientPlanLabels[selectedClient.plan]}`
+                } - ${selectedClient.city}${
+                  canViewCommercialData ? ` - Plano: ${clientPlanLabels[selectedClient.plan]}` : ""
+                }`
               : "Foto de referencia usada apenas para identificar a piscina."}
           </Text>
         </View>
