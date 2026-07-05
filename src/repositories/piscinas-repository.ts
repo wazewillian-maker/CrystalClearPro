@@ -22,19 +22,19 @@ export const piscinasRepository = {
     return mapFirestoreDocs<Piscina>(snapshot);
   },
 
-  async create(data: Omit<Piscina, "id" | "criadoEm" | "atualizadoEm">): Promise<string> {
+  async create(data: Omit<Piscina, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
       ...data,
-      criadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
     return ref.id;
   },
 
-  async update(id: string, data: Partial<Omit<Piscina, "id" | "criadoEm">>): Promise<void> {
+  async update(id: string, data: Partial<Omit<Piscina, "id" | "createdAt" | "criadoEm">>): Promise<void> {
     await updateDoc(doc(getFirebaseFirestore(), collectionName, id), {
       ...data,
-      atualizadoEm: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
   },
 };

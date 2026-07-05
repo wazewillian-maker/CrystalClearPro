@@ -21,7 +21,7 @@ const planOptions: ClientPlan[] = ["monthly", "biweekly", "weekly", "daily", "on
 type EditClientScreenProps = {
   client: Client;
   onBack: () => void;
-  onSave: (client: ClientFormData) => void;
+  onSave: (client: ClientFormData) => Promise<void> | void;
 };
 
 export function EditClientScreen({ client, onBack, onSave }: EditClientScreenProps) {
@@ -29,6 +29,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
   const [neighborhood, setNeighborhood] = useState(client.neighborhood);
   const [address, setAddress] = useState(client.address);
   const [phone, setPhone] = useState(client.phone);
+  const [email, setEmail] = useState(client.email ?? "");
   const [poolType, setPoolType] = useState(client.poolType ?? "");
   const [liters, setLiters] = useState(
     typeof client.liters === "number" && Number.isFinite(client.liters)
@@ -49,8 +50,9 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
   );
   const [plan, setPlan] = useState<ClientPlan>(client.plan);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       setError("Nome e obrigatorio.");
       return;
@@ -75,20 +77,29 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
     }
 
     setError("");
-    onSave({
-      ...client,
-      name: name.trim(),
-      neighborhood: neighborhood.trim(),
-      address: address.trim(),
-      phone: phone.trim(),
-      poolType: poolType.trim(),
-      referencePhotoUri,
-      liters: parsedLiters,
-      notes: notes.trim(),
-      plan,
-      valorMensal: parsedMonthlyValue,
-      diaVencimento: parsedDueDay,
-    });
+    setSaving(true);
+
+    try {
+      await onSave({
+        ...client,
+        name: name.trim(),
+        neighborhood: neighborhood.trim(),
+        address: address.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        poolType: poolType.trim(),
+        referencePhotoUri,
+        liters: parsedLiters,
+        notes: notes.trim(),
+        plan,
+        valorMensal: parsedMonthlyValue,
+        diaVencimento: parsedDueDay,
+      });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar as alteracoes.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function pickReferencePhoto() {
@@ -183,6 +194,14 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
             value={phone}
           />
           <FormField
+            autoCapitalize="none"
+            keyboardType="email-address"
+            label="E-mail"
+            onChangeText={setEmail}
+            placeholder="cliente@email.com"
+            value={email}
+          />
+          <FormField
             label="Bairro"
             onChangeText={setNeighborhood}
             placeholder="Bairro"
@@ -242,7 +261,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
           </Text>
         ) : null}
 
-        <PrimaryButton onPress={handleSave} title="Salvar alterações" variant="success" />
+        <PrimaryButton loading={saving} onPress={handleSave} title="Salvar alterações" variant="success" />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -253,10 +272,12 @@ type FormFieldProps = {
   onChangeText: (value: string) => void;
   placeholder: string;
   value: string;
-  keyboardType?: "default" | "phone-pad" | "decimal-pad" | "number-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  keyboardType?: "default" | "phone-pad" | "decimal-pad" | "number-pad" | "email-address";
 };
 
 function FormField({
+  autoCapitalize,
   label,
   onChangeText,
   placeholder,
@@ -267,6 +288,7 @@ function FormField({
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         placeholder={placeholder}

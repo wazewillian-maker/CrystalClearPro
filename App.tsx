@@ -19,13 +19,17 @@ import { PrimeiroAcessoScreen } from "./src/screens/PrimeiroAcessoScreen";
 import { ProdutosScreen } from "./src/screens/produtos-screen";
 import { SplashScreen } from "./src/screens/splash-screen";
 import { AuthProvider, useAuthContext } from "./src/contexts/auth-context";
+import { clientesRepository } from "./src/repositories/clientes-repository";
+import { piscinasRepository } from "./src/repositories/piscinas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
-import type { Client, ClientFormData } from "./src/types/client";
+import type { Client, ClientFormData, ClientPlan } from "./src/types/client";
+import type { Cliente } from "./src/types/cliente";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
+import type { Piscina, PlanoAtendimento } from "./src/types/piscina";
 import type { UsuarioPerfil } from "./src/types/usuario";
 import {
   initialProductRequests,
@@ -147,6 +151,8 @@ function AppContent() {
   const [showFirstAccessButton, setShowFirstAccessButton] = useState(true);
   const [isTestMode, setIsTestMode] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientsError, setClientsError] = useState("");
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
   const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
@@ -289,6 +295,14 @@ function AppContent() {
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
 
   useEffect(() => {
+    if (authLoading || isTestMode || authenticatedUserProfile?.perfil !== "dono") {
+      return;
+    }
+
+    void loadFirestoreClients(authenticatedUserProfile.empresaId);
+  }, [authLoading, authenticatedUserProfile?.empresaId, authenticatedUserProfile?.perfil, isTestMode]);
+
+  useEffect(() => {
     if (authLoading || currentScreen !== "splash") {
       return;
     }
@@ -365,7 +379,75 @@ function AppContent() {
     setCurrentScreen("login");
   }
 
-  function handleSaveClient(clientData: ClientFormData) {
+  async function loadFirestoreClients(empresaId: string) {
+    setClientsLoading(true);
+    setClientsError("");
+
+    try {
+      const [firestoreClients, firestorePools] = await Promise.all([
+        clientesRepository.listByEmpresa(empresaId),
+        piscinasRepository.listByEmpresa(empresaId),
+      ]);
+
+      setClients(
+        firestoreClients
+          .filter((client) => client.status !== "inativo")
+          .map((client) =>
+            mapFirestoreClientToAppClient(
+              client,
+              firestorePools.find((pool) => pool.clienteId === client.id && pool.status !== "inativa"),
+            ),
+          ),
+      );
+    } catch (error) {
+      setClientsError(getFirestoreFriendlyError(error, "Nao foi possivel carregar os clientes do Firestore."));
+    } finally {
+      setClientsLoading(false);
+    }
+  }
+
+  async function handleSaveClient(clientData: ClientFormData) {
+    if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
+      try {
+        const clienteId = await clientesRepository.create({
+          bairro: clientData.neighborhood,
+          cidade: clientData.city,
+          email: clientData.email ?? "",
+          empresaId: authenticatedUserProfile.empresaId,
+          endereco: clientData.address,
+          nome: clientData.name,
+          observacoes: clientData.notes,
+          status: "ativo",
+          telefone: clientData.phone,
+        });
+        const piscinaId = await piscinasRepository.create({
+          clienteId,
+          diaVencimento: clientData.diaVencimento,
+          empresaId: authenticatedUserProfile.empresaId,
+          fotoReferenciaUrl: clientData.referencePhotoUri,
+          litros: clientData.liters,
+          nome: "Piscina principal",
+          observacoes: clientData.notes,
+          planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+          status: "ativa",
+          tipo: clientData.poolType,
+          valorMensal: clientData.valorMensal,
+        });
+
+        const newClient: Client = {
+          id: clienteId,
+          piscinaId,
+          ...clientData,
+        };
+
+        setClients((currentClients) => [newClient, ...currentClients]);
+        setCurrentScreen("clients");
+        return;
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel salvar cliente e piscina no Firestore."));
+      }
+    }
+
     const newClient: Client = {
       id: String(Date.now()),
       ...clientData,
@@ -407,9 +489,52 @@ function AppContent() {
     setCurrentScreen("client-detail");
   }
 
-  function handleUpdateClient(clientData: ClientFormData) {
+  async function handleUpdateClient(clientData: ClientFormData) {
     if (!selectedClientId) {
       return;
+    }
+
+    if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
+      try {
+        await clientesRepository.update(selectedClientId, {
+          bairro: clientData.neighborhood,
+          cidade: clientData.city,
+          email: clientData.email ?? "",
+          endereco: clientData.address,
+          nome: clientData.name,
+          observacoes: clientData.notes,
+          telefone: clientData.phone,
+        });
+
+        if (clientData.piscinaId) {
+          await piscinasRepository.update(clientData.piscinaId, {
+            diaVencimento: clientData.diaVencimento,
+            fotoReferenciaUrl: clientData.referencePhotoUri,
+            litros: clientData.liters,
+            observacoes: clientData.notes,
+            planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            tipo: clientData.poolType,
+            valorMensal: clientData.valorMensal,
+          });
+        } else {
+          const piscinaId = await piscinasRepository.create({
+            clienteId: selectedClientId,
+            diaVencimento: clientData.diaVencimento,
+            empresaId: authenticatedUserProfile.empresaId,
+            fotoReferenciaUrl: clientData.referencePhotoUri,
+            litros: clientData.liters,
+            nome: "Piscina principal",
+            observacoes: clientData.notes,
+            planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            status: "ativa",
+            tipo: clientData.poolType,
+            valorMensal: clientData.valorMensal,
+          });
+          clientData = { ...clientData, piscinaId };
+        }
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel atualizar cliente e piscina no Firestore."));
+      }
     }
 
     setClients((currentClients) =>
@@ -420,9 +545,15 @@ function AppContent() {
     setCurrentScreen("client-detail");
   }
 
-  function handleDeleteClient() {
+  async function handleDeleteClient() {
     if (!selectedClientId) {
       return;
+    }
+
+    if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
+      await clientesRepository.update(selectedClientId, { status: "inativo" }).catch((error: unknown) => {
+        console.warn("Nao foi possivel inativar cliente no Firestore.", error);
+      });
     }
 
     setClients((currentClients) =>
@@ -729,6 +860,8 @@ function AppContent() {
       {currentScreen === "clients" ? (
         <ClientsScreen
           clients={clients}
+          errorMessage={clientsError}
+          loading={clientsLoading}
           onBack={() => setCurrentScreen("home")}
           onOpenClient={handleOpenClient}
           onNewClient={() => setCurrentScreen("new-client")}
@@ -879,6 +1012,73 @@ function mapUsuarioPerfilToTestRole(perfil: UsuarioPerfil): TestUserRole {
 
 function getInitialScreenForPerfil(perfil: UsuarioPerfil): AppScreen {
   return perfil === "cliente" ? "client-area" : "home";
+}
+
+function mapFirestoreClientToAppClient(cliente: Cliente, piscina?: Piscina): Client {
+  return {
+    address: cliente.endereco ?? "",
+    city: cliente.cidade ?? "",
+    diaVencimento: piscina?.diaVencimento ?? 1,
+    email: cliente.email ?? "",
+    frequency: "once",
+    id: cliente.id,
+    liters: piscina?.litros,
+    name: cliente.nome,
+    neighborhood: cliente.bairro ?? "",
+    notes: piscina?.observacoes ?? cliente.observacoes ?? "",
+    phone: cliente.telefone ?? "",
+    piscinaId: piscina?.id,
+    plan: mapPlanoAtendimentoToClientPlan(piscina?.planoAtendimento),
+    poolType: piscina?.tipo ?? "",
+    referencePhotoUri: piscina?.fotoReferenciaUrl,
+    valorMensal: piscina?.valorMensal ?? 0,
+    weekDays: [],
+  };
+}
+
+function mapClientPlanToPlanoAtendimento(plan: ClientPlan): PlanoAtendimento {
+  const plans: Record<ClientPlan, PlanoAtendimento> = {
+    biweekly: "quinzenal",
+    daily: "todo_dia",
+    monthly: "mensal",
+    "one-time": "avulso",
+    weekly: "semanal",
+  };
+
+  return plans[plan];
+}
+
+function mapPlanoAtendimentoToClientPlan(plan?: PlanoAtendimento): ClientPlan {
+  const plans: Record<PlanoAtendimento, ClientPlan> = {
+    avulso: "one-time",
+    mensal: "monthly",
+    quinzenal: "biweekly",
+    semanal: "weekly",
+    todo_dia: "daily",
+  };
+
+  return plan ? plans[plan] : "monthly";
+}
+
+function getFirestoreFriendlyError(error: unknown, fallback: string) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: unknown }).code
+      : "";
+
+  if (code === "permission-denied") {
+    return "Sem permissao no Firestore para acessar clientes e piscinas desta empresa.";
+  }
+
+  if (code === "unavailable") {
+    return "Firestore indisponivel no momento. Tente novamente em instantes.";
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function getAuthErrorMessage(error: unknown) {

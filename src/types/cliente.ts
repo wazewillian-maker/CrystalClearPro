@@ -14,6 +14,8 @@ export type Cliente = {
   endereco?: string;
   observacoes?: string;
   status: ClienteStatus;
-  criadoEm: Timestamp;
-  atualizadoEm: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  criadoEm?: Timestamp;
+  atualizadoEm?: Timestamp;
 };

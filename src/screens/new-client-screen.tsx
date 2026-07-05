@@ -44,12 +44,13 @@ const frequencyDayLimits: Partial<Record<ClientFrequency, number>> = {
 
 type NewClientScreenProps = {
   onBack: () => void;
-  onSave: (client: ClientFormData) => void;
+  onSave: (client: ClientFormData) => Promise<void> | void;
 };
 
 export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [address, setAddress] = useState("");
@@ -63,6 +64,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
   const [frequency, setFrequency] = useState<ClientFrequency>("once");
   const [weekDays, setWeekDays] = useState<WeekDay[]>([]);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   function handleFrequencyChange(nextFrequency: ClientFrequency) {
     setFrequency(nextFrequency);
@@ -102,7 +104,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
     });
   }
 
-  function handleSave() {
+  async function handleSave() {
     const requiredFields = [
       name.trim(),
       phone.trim(),
@@ -146,22 +148,31 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
     }
 
     setError("");
-    onSave({
-      name: name.trim(),
-      phone: phone.trim(),
-      city: city.trim(),
-      neighborhood: neighborhood.trim(),
-      address: address.trim(),
-      poolType: poolType.trim(),
-      referencePhotoUri,
-      liters: parsedLiters,
-      notes: notes.trim(),
-      plan,
-      frequency,
-      weekDays,
-      valorMensal: parsedMonthlyValue,
-      diaVencimento: parsedDueDay,
-    });
+    setSaving(true);
+
+    try {
+      await onSave({
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        city: city.trim(),
+        neighborhood: neighborhood.trim(),
+        address: address.trim(),
+        poolType: poolType.trim(),
+        referencePhotoUri,
+        liters: parsedLiters,
+        notes: notes.trim(),
+        plan,
+        frequency,
+        weekDays,
+        valorMensal: parsedMonthlyValue,
+        diaVencimento: parsedDueDay,
+      });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar o cliente.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function pickReferencePhoto() {
@@ -240,6 +251,14 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
             onChangeText={setPhone}
             placeholder="(11) 99999-0000"
             value={phone}
+          />
+          <FormField
+            autoCapitalize="none"
+            keyboardType="email-address"
+            label="E-mail"
+            onChangeText={setEmail}
+            placeholder="cliente@email.com"
+            value={email}
           />
           <FormField label="Cidade" onChangeText={setCity} placeholder="Sao Paulo" value={city} />
           <FormField
@@ -348,7 +367,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
           </Text>
         ) : null}
 
-        <PrimaryButton icon="+" onPress={handleSave} title="Salvar Cliente" />
+        <PrimaryButton icon="+" loading={saving} onPress={handleSave} title="Salvar Cliente" />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -359,10 +378,12 @@ type FormFieldProps = {
   onChangeText: (value: string) => void;
   placeholder: string;
   value: string;
-  keyboardType?: "default" | "phone-pad" | "decimal-pad" | "number-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  keyboardType?: "default" | "phone-pad" | "decimal-pad" | "number-pad" | "email-address";
 };
 
 function FormField({
+  autoCapitalize,
   label,
   onChangeText,
   placeholder,
@@ -373,6 +394,7 @@ function FormField({
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         placeholder={placeholder}

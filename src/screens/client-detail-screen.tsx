@@ -86,19 +86,25 @@ export function ClientDetailScreen({ client, onBack, onDelete, onEdit }: ClientD
         <AppCard>
           <DetailRow label="Nome" value={client.name} />
           <DetailRow label="Telefone" value={client.phone} />
+          <DetailRow label="E-mail" value={client.email || "Nao informado"} />
           <DetailRow label="Cidade" value={client.city} />
           <DetailRow label="Bairro" value={client.neighborhood} />
           <DetailRow label="Endereco" value={client.address} />
+          <DetailRow label="Observacoes do cliente" value={client.notes || "Sem observacoes"} />
+        </AppCard>
+
+        <AppCard>
+          <DetailRow label="Piscina vinculada" value="Piscina principal" />
           <DetailRow label="Tipo da piscina" value={client.poolType || "Nao informado"} />
           <DetailRow
             label="Litros"
             value={
               typeof client.liters === "number" && Number.isFinite(client.liters)
                 ? String(client.liters)
-                : "Nao informado"
+              : "Nao informado"
             }
           />
-          <DetailRow label="Observacoes" value={client.notes || "Sem observacoes"} />
+          <DetailRow label="Observacoes da piscina" value={client.notes || "Sem observacoes"} />
         </AppCard>
 
         <AppCard>

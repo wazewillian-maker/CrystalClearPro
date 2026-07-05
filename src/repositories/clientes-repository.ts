@@ -17,19 +17,19 @@ export const clientesRepository = {
     return mapFirestoreDocs<Cliente>(snapshot);
   },
 
-  async create(data: Omit<Cliente, "id" | "criadoEm" | "atualizadoEm">): Promise<string> {
+  async create(data: Omit<Cliente, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
       ...data,
-      criadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
     return ref.id;
   },
 
-  async update(id: string, data: Partial<Omit<Cliente, "id" | "criadoEm">>): Promise<void> {
+  async update(id: string, data: Partial<Omit<Cliente, "id" | "createdAt" | "criadoEm">>): Promise<void> {
     await updateDoc(doc(getFirebaseFirestore(), collectionName, id), {
       ...data,
-      atualizadoEm: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
   },
 };

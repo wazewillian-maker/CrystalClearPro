@@ -13,8 +13,10 @@ export type WeekDay =
 
 export type Client = {
   id: string;
+  piscinaId?: string;
   name: string;
   phone: string;
+  email?: string;
   city: string;
   neighborhood: string;
   address: string;

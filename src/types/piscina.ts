@@ -16,6 +16,8 @@ export type Piscina = {
   valorMensal?: number;
   diaVencimento?: number;
   status: PiscinaStatus;
-  criadoEm: Timestamp;
-  atualizadoEm: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  criadoEm?: Timestamp;
+  atualizadoEm?: Timestamp;
 };

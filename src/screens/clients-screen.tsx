@@ -12,6 +12,8 @@ import { clientPlanLabels, type Client } from "../types/client";
 
 type ClientsScreenProps = {
   clients: Client[];
+  errorMessage?: string;
+  loading?: boolean;
   onBack: () => void;
   onOpenClient: (clientId: string) => void;
   onNewClient: () => void;
@@ -19,6 +21,8 @@ type ClientsScreenProps = {
 
 export function ClientsScreen({
   clients,
+  errorMessage,
+  loading = false,
   onBack,
   onOpenClient,
   onNewClient,
@@ -58,7 +62,19 @@ export function ClientsScreen({
           />
         </View>
 
-        {clients.length === 0 ? (
+        {errorMessage ? (
+          <AppCard style={styles.emptyState}>
+            <Text selectable style={styles.emptyTitle}>
+              {errorMessage}
+            </Text>
+          </AppCard>
+        ) : loading ? (
+          <AppCard style={styles.emptyState}>
+            <Text selectable style={styles.emptyTitle}>
+              Carregando clientes...
+            </Text>
+          </AppCard>
+        ) : clients.length === 0 ? (
           <AppCard style={styles.emptyState}>
             <Text selectable style={styles.emptyTitle}>
               Nenhum cliente cadastrado.
@@ -88,6 +104,11 @@ export function ClientsScreen({
                     <Text selectable style={styles.clientDetail}>
                       {client.phone}
                     </Text>
+                    {client.email ? (
+                      <Text selectable style={styles.clientDetail}>
+                        {client.email}
+                      </Text>
+                    ) : null}
                     <Text selectable style={styles.clientDetail}>
                       {client.neighborhood} - {clientPlanLabels[client.plan]}
                     </Text>
