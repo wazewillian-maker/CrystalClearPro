@@ -54,9 +54,11 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
   const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [address, setAddress] = useState("");
+  const [poolName, setPoolName] = useState("Piscina principal");
   const [poolType, setPoolType] = useState("");
   const [liters, setLiters] = useState("");
   const [notes, setNotes] = useState("");
+  const [poolNotes, setPoolNotes] = useState("");
   const [referencePhotoUri, setReferencePhotoUri] = useState("");
   const [monthlyValue, setMonthlyValue] = useState("");
   const [dueDay, setDueDay] = useState("");
@@ -111,6 +113,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
       city.trim(),
       neighborhood.trim(),
       address.trim(),
+      poolName.trim(),
     ];
 
     if (requiredFields.some((field) => field.length === 0)) {
@@ -158,10 +161,12 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
         city: city.trim(),
         neighborhood: neighborhood.trim(),
         address: address.trim(),
+        poolName: poolName.trim(),
         poolType: poolType.trim(),
         referencePhotoUri,
         liters: parsedLiters,
         notes: notes.trim(),
+        poolNotes: poolNotes.trim(),
         plan,
         frequency,
         weekDays,
@@ -231,7 +236,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.groupTitle}>Foto de Referencia da Piscina</Text>
+          <Text style={styles.groupTitle}>Piscina principal</Text>
           <Text selectable style={styles.helperText}>
             Essa foto sera usada para identificar esta piscina em todo o aplicativo.
           </Text>
@@ -244,6 +249,7 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.groupTitle}>Dados do cliente</Text>
           <FormField label="Nome" onChangeText={setName} placeholder="Maria Oliveira" value={name} />
           <FormField
             keyboardType="phone-pad"
@@ -272,6 +278,31 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
             onChangeText={setAddress}
             placeholder="Rua das Aguas, 120"
             value={address}
+          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Observacoes do cliente</Text>
+            <TextInput
+              multiline
+              onChangeText={setNotes}
+              placeholder="Preferencias, acesso ao local ou dados gerais do cliente"
+              placeholderTextColor={colors.muted}
+              style={[styles.input, styles.textArea]}
+              textAlignVertical="top"
+              value={notes}
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Dados da piscina principal</Text>
+          <Text selectable style={styles.helperText}>
+            Esta piscina sera criada vinculada ao cliente assim que o cadastro for salvo.
+          </Text>
+          <FormField
+            label="Nome da piscina"
+            onChangeText={setPoolName}
+            placeholder="Piscina principal"
+            value={poolName}
           />
           <FormField
             label="Tipo da piscina"
@@ -302,15 +333,15 @@ export function NewClientScreen({ onBack, onSave }: NewClientScreenProps) {
           />
 
           <View style={styles.field}>
-            <Text style={styles.label}>Observacoes</Text>
+            <Text style={styles.label}>Observacoes da piscina</Text>
             <TextInput
               multiline
-              onChangeText={setNotes}
-              placeholder="Preferencias, acesso ao local ou cuidados especiais"
+              onChangeText={setPoolNotes}
+              placeholder="Cuidados tecnicos, acesso ao local ou detalhes da estrutura"
               placeholderTextColor={colors.muted}
               style={[styles.input, styles.textArea]}
               textAlignVertical="top"
-              value={notes}
+              value={poolNotes}
             />
           </View>
         </View>

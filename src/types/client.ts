@@ -14,6 +14,7 @@ export type WeekDay =
 export type Client = {
   id: string;
   piscinaId?: string;
+  poolName?: string;
   name: string;
   phone: string;
   email?: string;
@@ -24,11 +25,15 @@ export type Client = {
   referencePhotoUri?: string;
   liters?: number;
   notes: string;
+  poolNotes?: string;
   plan: ClientPlan;
   frequency: ClientFrequency;
   weekDays: WeekDay[];
   valorMensal: number;
   diaVencimento: number;
+  diasAtendimento?: WeekDay[];
+  diaMesAtendimento?: number;
+  dataAtendimentoAvulso?: string;
 };
 
 export type ClientFormData = Omit<Client, "id">;

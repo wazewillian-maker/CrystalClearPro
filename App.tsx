@@ -15,6 +15,7 @@ import { HistoricoScreen } from "./src/screens/HistoricoScreen";
 import { HomeScreen } from "./src/screens/home-screen";
 import { LoginScreen, type TestUserRole } from "./src/screens/login-screen";
 import { NewClientScreen } from "./src/screens/new-client-screen";
+import { NewPoolScreen } from "./src/screens/new-pool-screen";
 import { PrimeiroAcessoScreen } from "./src/screens/PrimeiroAcessoScreen";
 import { ProdutosScreen } from "./src/screens/produtos-screen";
 import { SplashScreen } from "./src/screens/splash-screen";
@@ -32,7 +33,7 @@ import type { Cliente } from "./src/types/cliente";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
 import type { Funcionario } from "./src/types/funcionario";
-import type { Piscina, PlanoAtendimento } from "./src/types/piscina";
+import type { Piscina, PiscinaFormData, PlanoAtendimento } from "./src/types/piscina";
 import type { UsuarioPerfil } from "./src/types/usuario";
 import type { Visita, VisitaOrigem, VisitaStatus } from "./src/types/visita";
 import {
@@ -119,6 +120,7 @@ type AppScreen =
   | "home"
   | "clients"
   | "new-client"
+  | "new-pool"
   | "edit-client"
   | "client-detail"
   | "products"
@@ -155,6 +157,7 @@ function AppContent() {
   const [showFirstAccessButton, setShowFirstAccessButton] = useState(true);
   const [isTestMode, setIsTestMode] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
+  const [pools, setPools] = useState<Piscina[]>([]);
   const [clientsError, setClientsError] = useState("");
   const [clientsLoading, setClientsLoading] = useState(false);
   const [restrictedAccessMessage, setRestrictedAccessMessage] = useState("");
@@ -167,7 +170,12 @@ function AppContent() {
   const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
   const [selectedAgendaItemId, setSelectedAgendaItemId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
   const selectedClient = clients.find((client) => client.id === selectedClientId);
+  const selectedPool = pools.find((pool) => pool.id === selectedPoolId);
+  const selectedClientPools = selectedClientId
+    ? pools.filter((pool) => pool.clienteId === selectedClientId && pool.status !== "inativa")
+    : [];
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
   const authenticatedPerfil = authenticatedUserProfile?.perfil;
   const isOperationalStaffView = isTestMode ? activeRole === "staff" : authenticatedPerfil === "funcionario";
@@ -329,6 +337,19 @@ function AppContent() {
   }, [authLoading, authenticatedUserProfile?.empresaId, authenticatedUserProfile?.perfil, isTestMode]);
 
   useEffect(() => {
+    if (
+      authLoading ||
+      isTestMode ||
+      authenticatedUserProfile?.perfil !== "cliente" ||
+      !authenticatedUserProfile.clienteId
+    ) {
+      return;
+    }
+
+    void loadFirestoreClientArea(authenticatedUserProfile.clienteId);
+  }, [authLoading, authenticatedUserProfile?.clienteId, authenticatedUserProfile?.perfil, isTestMode]);
+
+  useEffect(() => {
     if (authLoading || isTestMode || !authenticatedUserProfile) {
       return;
     }
@@ -372,6 +393,7 @@ function AppContent() {
       "edit-client",
       "finance",
       "new-client",
+      "new-pool",
       "team",
     ];
 
@@ -485,8 +507,40 @@ function AppContent() {
             ),
           ),
       );
+      setPools(firestorePools.filter((pool) => pool.status !== "inativa"));
     } catch (error) {
       setClientsError(getFirestoreFriendlyError(error, "Nao foi possivel carregar os clientes do Firestore."));
+    } finally {
+      setClientsLoading(false);
+    }
+  }
+
+  async function loadFirestoreClientArea(clienteId: string) {
+    setClientsLoading(true);
+    setClientsError("");
+
+    try {
+      const [firestoreClient, firestorePools] = await Promise.all([
+        clientesRepository.getById(clienteId),
+        piscinasRepository.listByCliente(clienteId),
+      ]);
+
+      if (!firestoreClient || firestoreClient.status === "inativo") {
+        setClients([]);
+        setPools([]);
+        return;
+      }
+
+      const activePools = firestorePools.filter((pool) => pool.status !== "inativa");
+      setClients([
+        mapFirestoreClientToAppClient(
+          firestoreClient,
+          activePools.find((pool) => pool.clienteId === firestoreClient.id),
+        ),
+      ]);
+      setPools(activePools);
+    } catch (error) {
+      setClientsError(getFirestoreFriendlyError(error, "Nao foi possivel carregar os dados do cliente."));
     } finally {
       setClientsLoading(false);
     }
@@ -567,7 +621,7 @@ function AppContent() {
   }
 
   async function handleSaveClient(clientData: ClientFormData) {
-    if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
+    if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
       try {
         const clienteId = await clientesRepository.create({
           bairro: clientData.neighborhood,
@@ -586,9 +640,12 @@ function AppContent() {
           empresaId: authenticatedUserProfile.empresaId,
           fotoReferenciaUrl: clientData.referencePhotoUri,
           litros: clientData.liters,
-          nome: "Piscina principal",
-          observacoes: clientData.notes,
+          nome: clientData.poolName?.trim() || "Piscina principal",
+          observacoes: clientData.poolNotes ?? "",
           planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+          dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+          diaMensal: clientData.diaMesAtendimento,
+          diasAtendimento: clientData.diasAtendimento ?? [],
           status: "ativa",
           tipo: clientData.poolType,
           valorMensal: clientData.valorMensal,
@@ -599,8 +656,26 @@ function AppContent() {
           piscinaId,
           ...clientData,
         };
+        const newPool: Piscina = {
+          clienteId,
+          diaVencimento: clientData.diaVencimento,
+          empresaId: authenticatedUserProfile.empresaId,
+          fotoReferenciaUrl: clientData.referencePhotoUri,
+          id: piscinaId,
+          litros: clientData.liters,
+          nome: clientData.poolName?.trim() || "Piscina principal",
+          observacoes: clientData.poolNotes ?? "",
+          planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+          dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+          diaMensal: clientData.diaMesAtendimento,
+          diasAtendimento: clientData.diasAtendimento ?? [],
+          status: "ativa",
+          tipo: clientData.poolType,
+          valorMensal: clientData.valorMensal,
+        };
 
         setClients((currentClients) => [newClient, ...currentClients]);
+        setPools((currentPools) => [newPool, ...currentPools]);
         setCurrentScreen("clients");
         return;
       } catch (error) {
@@ -614,7 +689,150 @@ function AppContent() {
     };
 
     setClients((currentClients) => [newClient, ...currentClients]);
+    setPools((currentPools) => [
+      {
+        clienteId: newClient.id,
+        diaVencimento: newClient.diaVencimento,
+        empresaId: "test-mode",
+        fotoReferenciaUrl: newClient.referencePhotoUri,
+        id: `${newClient.id}-pool`,
+        litros: newClient.liters,
+        nome: newClient.poolName?.trim() || "Piscina principal",
+        observacoes: newClient.poolNotes ?? "",
+        planoAtendimento: mapClientPlanToPlanoAtendimento(newClient.plan),
+        dataAvulsa: newClient.dataAtendimentoAvulso ?? "",
+        diaMensal: newClient.diaMesAtendimento,
+        diasAtendimento: newClient.diasAtendimento ?? [],
+        status: "ativa",
+        tipo: newClient.poolType,
+        valorMensal: newClient.valorMensal,
+      },
+      ...currentPools,
+    ]);
     setCurrentScreen("clients");
+  }
+
+  async function handleSavePool(poolData: PiscinaFormData) {
+    const linkedClient = clients.find((client) => client.id === poolData.clienteId);
+
+    if (!linkedClient) {
+      throw new Error("Cliente vinculado nao encontrado.");
+    }
+
+    if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
+      try {
+        const firestoreClient = await clientesRepository.getById(poolData.clienteId);
+
+        if (
+          !firestoreClient ||
+          firestoreClient.empresaId !== authenticatedUserProfile.empresaId ||
+          firestoreClient.status !== "ativo"
+        ) {
+          throw new Error("Selecione um cliente real ativo da sua empresa antes de salvar a piscina.");
+        }
+
+        if (selectedPoolId) {
+          await piscinasRepository.update(selectedPoolId, {
+            clienteId: poolData.clienteId,
+            diaVencimento: poolData.diaVencimento,
+            empresaId: authenticatedUserProfile.empresaId,
+            fotoReferenciaUrl: poolData.fotoReferenciaUrl,
+            litros: poolData.litros,
+            nome: poolData.nome,
+            observacoes: poolData.observacoes,
+            planoAtendimento: poolData.planoAtendimento,
+            dataAvulsa: poolData.dataAvulsa,
+            diaMensal: poolData.diaMensal,
+            frequenciaSemanal: poolData.frequenciaSemanal,
+            diasAtendimento: poolData.diasAtendimento,
+            status: "ativa",
+            tipo: poolData.tipo,
+            valorMensal: poolData.valorMensal,
+          });
+
+          setPools((currentPools) =>
+            currentPools.map((pool) =>
+              pool.id === selectedPoolId
+                ? {
+                    ...pool,
+                    ...poolData,
+                    empresaId: authenticatedUserProfile.empresaId,
+                    status: "ativa",
+                  }
+                : pool,
+            ),
+          );
+          setSelectedPoolId(null);
+          setSelectedClientId(poolData.clienteId);
+          setCurrentScreen("client-detail");
+          return;
+        }
+
+        const piscinaId = await piscinasRepository.create({
+          clienteId: poolData.clienteId,
+          diaVencimento: poolData.diaVencimento,
+          empresaId: authenticatedUserProfile.empresaId,
+          fotoReferenciaUrl: poolData.fotoReferenciaUrl,
+          litros: poolData.litros,
+          nome: poolData.nome,
+          observacoes: poolData.observacoes,
+          planoAtendimento: poolData.planoAtendimento,
+          dataAvulsa: poolData.dataAvulsa,
+          diaMensal: poolData.diaMensal,
+          frequenciaSemanal: poolData.frequenciaSemanal,
+          diasAtendimento: poolData.diasAtendimento,
+          status: "ativa",
+          tipo: poolData.tipo,
+          valorMensal: poolData.valorMensal,
+        });
+
+        setPools((currentPools) => [
+          {
+            ...poolData,
+            empresaId: authenticatedUserProfile.empresaId,
+            id: piscinaId,
+            status: "ativa",
+          },
+          ...currentPools,
+        ]);
+        setSelectedClientId(poolData.clienteId);
+        setCurrentScreen("client-detail");
+        return;
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel salvar a piscina no Firestore."));
+      }
+    }
+
+    if (selectedPoolId) {
+      setPools((currentPools) =>
+        currentPools.map((pool) =>
+          pool.id === selectedPoolId
+            ? {
+                ...pool,
+                ...poolData,
+                empresaId: pool.empresaId,
+                status: "ativa",
+              }
+            : pool,
+        ),
+      );
+      setSelectedPoolId(null);
+      setSelectedClientId(poolData.clienteId);
+      setCurrentScreen("client-detail");
+      return;
+    }
+
+    setPools((currentPools) => [
+      {
+        ...poolData,
+        empresaId: "test-mode",
+        id: String(Date.now()),
+        status: "ativa",
+      },
+      ...currentPools,
+    ]);
+    setSelectedClientId(poolData.clienteId);
+    setCurrentScreen("client-detail");
   }
 
   function handleCreateEmployee(employeeData: EmployeeFormData) {
@@ -649,12 +867,89 @@ function AppContent() {
     setCurrentScreen("client-detail");
   }
 
+  async function handleOpenNewPool(clientId?: string) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
+    setSelectedPoolId(null);
+
+    if (clientId) {
+      setSelectedClientId(clientId);
+    }
+
+    if (!isTestMode && authenticatedUserProfile?.empresaId) {
+      await loadFirestoreClients(authenticatedUserProfile.empresaId);
+    }
+
+    setCurrentScreen("new-pool");
+  }
+
+  function handleOpenEditPool(poolId: string) {
+    const pool = pools.find((currentPool) => currentPool.id === poolId);
+
+    if (!pool) {
+      return;
+    }
+
+    setSelectedPoolId(poolId);
+    setSelectedClientId(pool.clienteId);
+    setCurrentScreen("new-pool");
+  }
+
+  async function handleDeletePool(poolId: string) {
+    const pool = pools.find((currentPool) => currentPool.id === poolId);
+
+    if (!pool) {
+      throw new Error("Piscina nao encontrada.");
+    }
+
+    if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
+      try {
+        const linkedVisits = await visitasRepository.listByPiscina(authenticatedUserProfile.empresaId, poolId);
+        await Promise.all([
+          piscinasRepository.delete(poolId),
+          ...linkedVisits
+            .filter((visit) => visit.status !== "concluida")
+            .map((visit) => visitasRepository.delete(visit.id)),
+        ]);
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel excluir a piscina no Firestore."));
+      }
+    }
+
+    setPools((currentPools) => currentPools.filter((currentPool) => currentPool.id !== poolId));
+    setAgendaItems((currentItems) =>
+      currentItems.filter((item) => item.piscinaId !== poolId || item.status === "finished"),
+    );
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.piscinaId === poolId
+          ? {
+              ...client,
+              dataAtendimentoAvulso: "",
+              diaMesAtendimento: undefined,
+              diasAtendimento: [],
+              liters: undefined,
+              piscinaId: undefined,
+              poolName: undefined,
+              poolNotes: undefined,
+              poolType: "",
+              referencePhotoUri: undefined,
+              valorMensal: 0,
+            }
+          : client,
+      ),
+    );
+  }
+
   async function handleUpdateClient(clientData: ClientFormData) {
     if (!selectedClientId) {
       return;
     }
 
-    if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
+    if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
       try {
         await clientesRepository.update(selectedClientId, {
           bairro: clientData.neighborhood,
@@ -671,8 +966,12 @@ function AppContent() {
             diaVencimento: clientData.diaVencimento,
             fotoReferenciaUrl: clientData.referencePhotoUri,
             litros: clientData.liters,
-            observacoes: clientData.notes,
+            nome: clientData.poolName?.trim() || "Piscina principal",
+            observacoes: clientData.poolNotes ?? "",
             planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+            diaMensal: clientData.diaMesAtendimento,
+            diasAtendimento: clientData.diasAtendimento ?? [],
             tipo: clientData.poolType,
             valorMensal: clientData.valorMensal,
           });
@@ -683,9 +982,12 @@ function AppContent() {
             empresaId: authenticatedUserProfile.empresaId,
             fotoReferenciaUrl: clientData.referencePhotoUri,
             litros: clientData.liters,
-            nome: "Piscina principal",
-            observacoes: clientData.notes,
+            nome: clientData.poolName?.trim() || "Piscina principal",
+            observacoes: clientData.poolNotes ?? "",
             planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+            diaMensal: clientData.diaMesAtendimento,
+            diasAtendimento: clientData.diasAtendimento ?? [],
             status: "ativa",
             tipo: clientData.poolType,
             valorMensal: clientData.valorMensal,
@@ -702,6 +1004,28 @@ function AppContent() {
         client.id === selectedClientId ? { id: client.id, ...clientData } : client,
       ),
     );
+    if (clientData.piscinaId) {
+      setPools((currentPools) =>
+        currentPools.map((pool) =>
+          pool.id === clientData.piscinaId
+            ? {
+                ...pool,
+                diaVencimento: clientData.diaVencimento,
+                fotoReferenciaUrl: clientData.referencePhotoUri,
+                litros: clientData.liters,
+                nome: clientData.poolName?.trim() || "Piscina principal",
+                observacoes: clientData.poolNotes ?? "",
+                planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+                dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+                diaMensal: clientData.diaMesAtendimento,
+                diasAtendimento: clientData.diasAtendimento ?? [],
+                tipo: clientData.poolType,
+                valorMensal: clientData.valorMensal,
+              }
+            : pool,
+        ),
+      );
+    }
     setCurrentScreen("client-detail");
   }
 
@@ -1115,6 +1439,7 @@ function AppContent() {
           onBack={() => setCurrentScreen("home")}
           onOpenClient={handleOpenClient}
           onNewClient={() => setCurrentScreen("new-client")}
+          onNewPool={() => void handleOpenNewPool()}
         />
       ) : null}
 
@@ -1125,12 +1450,29 @@ function AppContent() {
         />
       ) : null}
 
+      {currentScreen === "new-pool" && canAccessClients ? (
+        <NewPoolScreen
+          canViewContactData={canViewCommercialData}
+          clients={clients}
+          editingPool={selectedPool}
+          errorMessage={clientsError}
+          initialClientId={selectedClientId ?? undefined}
+          loadingClients={clientsLoading}
+          onBack={() => setCurrentScreen(selectedClientId ? "client-detail" : "clients")}
+          onSave={handleSavePool}
+        />
+      ) : null}
+
       {currentScreen === "client-detail" && selectedClient && canAccessClients ? (
         <ClientDetailScreen
           client={selectedClient}
+          onAddPool={() => void handleOpenNewPool(selectedClient.id)}
           onBack={() => setCurrentScreen("clients")}
           onDelete={handleDeleteClient}
+          onDeletePool={handleDeletePool}
           onEdit={() => setCurrentScreen("edit-client")}
+          onEditPool={handleOpenEditPool}
+          pools={selectedClientPools}
         />
       ) : null}
 
@@ -1288,10 +1630,15 @@ function mapFirestoreClientToAppClient(cliente: Cliente, piscina?: Piscina): Cli
     liters: piscina?.litros,
     name: cliente.nome,
     neighborhood: cliente.bairro ?? "",
-    notes: piscina?.observacoes ?? cliente.observacoes ?? "",
+    notes: cliente.observacoes ?? "",
     phone: cliente.telefone ?? "",
     piscinaId: piscina?.id,
+    poolName: piscina?.nome,
+    poolNotes: piscina?.observacoes ?? "",
     plan: mapPlanoAtendimentoToClientPlan(piscina?.planoAtendimento),
+    dataAtendimentoAvulso: piscina?.dataAvulsa ?? piscina?.dataAtendimentoAvulso,
+    diaMesAtendimento: piscina?.diaMensal ?? piscina?.diaMesAtendimento,
+    diasAtendimento: piscina?.diasAtendimento ?? [],
     poolType: piscina?.tipo ?? "",
     referencePhotoUri: piscina?.fotoReferenciaUrl,
     valorMensal: piscina?.valorMensal ?? 0,
@@ -1310,10 +1657,15 @@ function mapFirestoreClientToOperationalClient(cliente: Cliente, piscina?: Pisci
     liters: piscina?.litros,
     name: cliente.nome,
     neighborhood: cliente.bairro ?? "",
-    notes: piscina?.observacoes ?? "",
+    notes: "",
     phone: "",
     piscinaId: piscina?.id,
+    poolName: piscina?.nome,
+    poolNotes: piscina?.observacoes ?? "",
     plan: "monthly",
+    dataAtendimentoAvulso: piscina?.dataAvulsa ?? piscina?.dataAtendimentoAvulso ?? "",
+    diaMesAtendimento: undefined,
+    diasAtendimento: piscina?.diasAtendimento ?? [],
     poolType: piscina?.tipo ?? "",
     referencePhotoUri: piscina?.fotoReferenciaUrl,
     valorMensal: 0,

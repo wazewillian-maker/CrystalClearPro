@@ -17,6 +17,7 @@ type ClientsScreenProps = {
   onBack: () => void;
   onOpenClient: (clientId: string) => void;
   onNewClient: () => void;
+  onNewPool: () => void;
 };
 
 export function ClientsScreen({
@@ -26,6 +27,7 @@ export function ClientsScreen({
   onBack,
   onOpenClient,
   onNewClient,
+  onNewPool,
 }: ClientsScreenProps) {
   const [search, setSearch] = useState("");
   const normalizedSearch = search.trim().toLowerCase();
@@ -59,6 +61,12 @@ export function ClientsScreen({
             style={styles.newClientButton}
             title="Novo Cliente"
             variant="success"
+          />
+          <PrimaryButton
+            icon="+"
+            onPress={onNewPool}
+            style={styles.newClientButton}
+            title="Adicionar piscina a cliente existente"
           />
         </View>
 
@@ -110,7 +118,7 @@ export function ClientsScreen({
                       </Text>
                     ) : null}
                     <Text selectable style={styles.clientDetail}>
-                      {client.neighborhood} - {clientPlanLabels[client.plan]}
+                      {client.neighborhood} - {client.poolName ?? "Piscina principal"} - {clientPlanLabels[client.plan]}
                     </Text>
                     <Text style={styles.clientStatus}>Ativo</Text>
                   </View>

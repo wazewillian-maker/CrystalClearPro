@@ -30,6 +30,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
   const [address, setAddress] = useState(client.address);
   const [phone, setPhone] = useState(client.phone);
   const [email, setEmail] = useState(client.email ?? "");
+  const [poolName, setPoolName] = useState(client.poolName ?? "Piscina principal");
   const [poolType, setPoolType] = useState(client.poolType ?? "");
   const [liters, setLiters] = useState(
     typeof client.liters === "number" && Number.isFinite(client.liters)
@@ -37,6 +38,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
       : "",
   );
   const [notes, setNotes] = useState(client.notes);
+  const [poolNotes, setPoolNotes] = useState(client.poolNotes ?? "");
   const [referencePhotoUri, setReferencePhotoUri] = useState(client.referencePhotoUri ?? "");
   const [monthlyValue, setMonthlyValue] = useState(
     typeof client.valorMensal === "number" && Number.isFinite(client.valorMensal)
@@ -87,10 +89,12 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
         address: address.trim(),
         phone: phone.trim(),
         email: email.trim(),
+        poolName: poolName.trim(),
         poolType: poolType.trim(),
         referencePhotoUri,
         liters: parsedLiters,
         notes: notes.trim(),
+        poolNotes: poolNotes.trim(),
         plan,
         valorMensal: parsedMonthlyValue,
         diaVencimento: parsedDueDay,
@@ -185,6 +189,7 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.groupTitle}>Dados do cliente</Text>
           <FormField label="Nome" onChangeText={setName} placeholder="Nome" value={name} />
           <FormField
             keyboardType="phone-pad"
@@ -212,6 +217,28 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
             onChangeText={setAddress}
             placeholder="Endereco"
             value={address}
+          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Observacoes do cliente</Text>
+            <TextInput
+              multiline
+              onChangeText={setNotes}
+              placeholder="Observacoes do cliente"
+              placeholderTextColor={colors.muted}
+              style={[styles.input, styles.textArea]}
+              textAlignVertical="top"
+              value={notes}
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.groupTitle}>Piscina principal</Text>
+          <FormField
+            label="Nome da piscina"
+            onChangeText={setPoolName}
+            placeholder="Piscina principal"
+            value={poolName}
           />
           <FormField
             label="Tipo da piscina"
@@ -242,15 +269,15 @@ export function EditClientScreen({ client, onBack, onSave }: EditClientScreenPro
           />
 
           <View style={styles.field}>
-            <Text style={styles.label}>Observacoes</Text>
+            <Text style={styles.label}>Observacoes da piscina</Text>
             <TextInput
               multiline
-              onChangeText={setNotes}
-              placeholder="Observacoes"
+              onChangeText={setPoolNotes}
+              placeholder="Observacoes da piscina"
               placeholderTextColor={colors.muted}
               style={[styles.input, styles.textArea]}
               textAlignVertical="top"
-              value={notes}
+              value={poolNotes}
             />
           </View>
         </View>

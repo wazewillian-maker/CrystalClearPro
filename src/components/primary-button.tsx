@@ -16,6 +16,7 @@ type PrimaryButtonProps = {
   title: string;
   onPress: (event: GestureResponderEvent) => void;
   loading?: boolean;
+  disabled?: boolean;
   variant?: "primary" | "success" | "danger" | "secondary" | "warning";
   icon?: string;
   style?: StyleProp<ViewStyle>;
@@ -40,6 +41,7 @@ const variantBorders = {
 export function PrimaryButton({
   title,
   onPress,
+  disabled = false,
   loading = false,
   variant = "primary",
   icon,
@@ -49,7 +51,7 @@ export function PrimaryButton({
     <Pressable
       accessibilityLabel={title}
       accessibilityRole="button"
-      disabled={loading}
+      disabled={loading || disabled}
       onPress={onPress}
       style={(state) => {
         const hovered = "hovered" in state && Boolean(state.hovered);
@@ -63,7 +65,7 @@ export function PrimaryButton({
           variant === "secondary" && styles.secondaryButton,
           hovered && styles.hovered,
           state.pressed && styles.pressed,
-          loading && styles.disabled,
+          (loading || disabled) && styles.disabled,
           style,
         ];
       }}

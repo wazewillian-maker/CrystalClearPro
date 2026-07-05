@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 
 import { getFirebaseFirestore } from "../firebase/firestore";
 import type { Visita } from "../types/visita";
@@ -44,6 +44,17 @@ export const visitasRepository = {
     return mapFirestoreDocs<Visita>(snapshot);
   },
 
+  async listByPiscina(empresaId: string, piscinaId: string): Promise<Visita[]> {
+    const snapshot = await getDocs(
+      query(
+        collection(getFirebaseFirestore(), collectionName),
+        where("empresaId", "==", empresaId),
+        where("piscinaId", "==", piscinaId)
+      )
+    );
+    return mapFirestoreDocs<Visita>(snapshot);
+  },
+
   async create(data: Omit<Visita, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
       ...data,
@@ -58,5 +69,9 @@ export const visitasRepository = {
       ...data,
       updatedAt: serverTimestamp(),
     });
+  },
+
+  async delete(id: string): Promise<void> {
+    await deleteDoc(doc(getFirebaseFirestore(), collectionName, id));
   },
 };

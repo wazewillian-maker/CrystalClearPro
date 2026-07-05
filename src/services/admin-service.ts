@@ -4,7 +4,9 @@ import { collection, doc, serverTimestamp, setDoc, updateDoc } from "firebase/fi
 import { firebaseConfig } from "../firebase/config";
 import { getFirebaseAuth } from "../firebase/auth";
 import { getFirebaseFirestore } from "../firebase/firestore";
+import { clientesRepository } from "../repositories/clientes-repository";
 import { funcionariosRepository } from "../repositories/funcionarios-repository";
+import { piscinasRepository } from "../repositories/piscinas-repository";
 import { usuariosRepository } from "../repositories/usuarios-repository";
 import type { Funcionario } from "../types/funcionario";
 import type { Usuario, UsuarioPerfil } from "../types/usuario";
@@ -133,6 +135,21 @@ export const adminService = {
       input.perfil === "funcionario" || input.perfil === "socio"
         ? doc(collection(getFirebaseFirestore(), "funcionarios")).id
         : undefined;
+    const clienteId =
+      input.perfil === "cliente"
+        ? await clientesRepository.create({
+            bairro: "",
+            cidade: "",
+            email: input.email.trim(),
+            empresaId: input.empresaId,
+            endereco: "",
+            nome: input.nome.trim(),
+            observacoes: "",
+            status: "ativo",
+            telefone: input.telefone?.trim() || "",
+            usuarioId: uid,
+          })
+        : undefined;
 
     await setDoc(doc(getFirebaseFirestore(), "usuarios", uid), {
       ativo: true,
@@ -141,6 +158,7 @@ export const adminService = {
       criadoEm: serverTimestamp(),
       email: input.email.trim(),
       empresaId: input.empresaId,
+      clienteId: clienteId ?? null,
       funcionarioId: funcionarioId ?? null,
       nome: input.nome.trim(),
       perfil: input.perfil,
@@ -148,6 +166,25 @@ export const adminService = {
       telefone: input.telefone?.trim() || null,
       atualizadoEm: serverTimestamp(),
     });
+
+    if (clienteId) {
+      await piscinasRepository.create({
+        clienteId,
+        diaVencimento: 1,
+        empresaId: input.empresaId,
+        fotoReferenciaUrl: "",
+        litros: 0,
+        nome: "Piscina principal",
+        observacoes: "",
+        planoAtendimento: "mensal",
+        dataAvulsa: "",
+        diaMensal: 1,
+        diasAtendimento: [],
+        status: "ativa",
+        tipo: "",
+        valorMensal: 0,
+      });
+    }
 
     if (funcionarioId && (input.perfil === "funcionario" || input.perfil === "socio")) {
       await funcionariosRepository.createWithId(funcionarioId, {

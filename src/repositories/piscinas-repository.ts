@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 
 import { getFirebaseFirestore } from "../firebase/firestore";
 import type { Piscina } from "../types/piscina";
@@ -36,5 +36,9 @@ export const piscinasRepository = {
       ...data,
       updatedAt: serverTimestamp(),
     });
+  },
+
+  async delete(id: string): Promise<void> {
+    await deleteDoc(doc(getFirebaseFirestore(), collectionName, id));
   },
 };
