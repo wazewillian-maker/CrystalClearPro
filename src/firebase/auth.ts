@@ -1,7 +1,13 @@
-import { getAuth } from "firebase/auth";
+import { getAuth, type Auth } from "firebase/auth";
 
 import { getFirebaseApp } from "./config";
 
+let firebaseAuth: Auth | null = null;
+
 export function getFirebaseAuth() {
-  return getAuth(getFirebaseApp());
+  if (!firebaseAuth) {
+    firebaseAuth = getAuth(getFirebaseApp());
+  }
+
+  return firebaseAuth;
 }

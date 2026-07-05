@@ -18,11 +18,20 @@ type AdministracaoScreenProps = {
 };
 
 type CreateMode = Extract<UsuarioPerfil, "funcionario" | "socio" | "cliente">;
+type CargoOption = "Piscineiro" | "Supervisor" | "Sócio" | "Auxiliar" | "Administrativo" | "Outro";
+
+const cargoOptions: CargoOption[] = ["Piscineiro", "Supervisor", "Sócio", "Auxiliar", "Administrativo", "Outro"];
 
 const createModeLabels: Record<CreateMode, string> = {
   cliente: "Novo Cliente",
   funcionario: "Novo Funcionário",
   socio: "Novo Sócio",
+};
+
+const createdMessageLabels: Record<CreateMode, string> = {
+  cliente: "Cliente criado com sucesso.",
+  funcionario: "Funcionário criado com sucesso.",
+  socio: "Sócio criado com sucesso.",
 };
 
 const profileLabels: Record<UsuarioPerfil, string> = {
@@ -32,6 +41,27 @@ const profileLabels: Record<UsuarioPerfil, string> = {
   socio: "Sócio",
 };
 
+function generateTemporaryPassword() {
+  return `CCP-${Math.floor(10000 + Math.random() * 90000)}`;
+}
+
+function getInitials(name: string) {
+  const names = name.trim().split(/\s+/).filter(Boolean);
+
+  if (names.length === 0) {
+    return "CC";
+  }
+
+  return names
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function getCargoValue(selectedCargo: CargoOption, customCargo: string) {
+  return selectedCargo === "Outro" ? customCargo.trim() : selectedCargo;
+}
+
 export function AdministracaoScreen({ empresaId, isOwner, onBack }: AdministracaoScreenProps) {
   const [usuarios, setUsuarios] = React.useState<Usuario[]>([]);
   const [loadingUsers, setLoadingUsers] = React.useState(false);
@@ -40,21 +70,23 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
   const [messageTone, setMessageTone] = React.useState<"error" | "success">("success");
   const [createMode, setCreateMode] = React.useState<CreateMode>("funcionario");
   const [editingUser, setEditingUser] = React.useState<Usuario | null>(null);
+  const [cargoMenuOpen, setCargoMenuOpen] = React.useState(false);
+  const [editCargoMenuOpen, setEditCargoMenuOpen] = React.useState(false);
+  const [selectedCargo, setSelectedCargo] = React.useState<CargoOption>("Piscineiro");
+  const [customCargo, setCustomCargo] = React.useState("");
+  const [editSelectedCargo, setEditSelectedCargo] = React.useState<CargoOption>("Piscineiro");
+  const [editCustomCargo, setEditCustomCargo] = React.useState("");
   const [form, setForm] = React.useState({
-    cargo: "",
     email: "",
     nome: "",
-    senhaTemporaria: "",
+    senhaTemporaria: generateTemporaryPassword(),
     telefone: "",
   });
   const [editForm, setEditForm] = React.useState({
     ativo: true,
-    cargo: "",
     nome: "",
     telefone: "",
   });
-
-  const canUseAdmin = Boolean(isOwner && empresaId);
 
   const loadUsers = React.useCallback(async () => {
     if (!empresaId || !isOwner) {
@@ -75,6 +107,17 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
     void loadUsers();
   }, [loadUsers]);
 
+  React.useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      senhaTemporaria: generateTemporaryPassword(),
+    }));
+    setSelectedCargo(createMode === "socio" ? "Sócio" : "Piscineiro");
+    setCustomCargo("");
+    setCargoMenuOpen(false);
+    setMessage("");
+  }, [createMode]);
+
   function showSuccess(nextMessage: string) {
     setMessageTone("success");
     setMessage(nextMessage);
@@ -91,12 +134,38 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
 
   function resetCreateForm() {
     setForm({
-      cargo: "",
       email: "",
       nome: "",
-      senhaTemporaria: "",
+      senhaTemporaria: generateTemporaryPassword(),
       telefone: "",
     });
+    setSelectedCargo(createMode === "socio" ? "Sócio" : "Piscineiro");
+    setCustomCargo("");
+    setCargoMenuOpen(false);
+  }
+
+  function validateCreateForm() {
+    if (!form.nome.trim()) {
+      return "Informe o nome.";
+    }
+
+    if (!form.email.trim()) {
+      return "Informe o e-mail.";
+    }
+
+    if (!form.telefone.trim()) {
+      return "Informe o telefone.";
+    }
+
+    if (!form.senhaTemporaria.trim()) {
+      return "Informe a senha temporária.";
+    }
+
+    if (createMode !== "cliente" && !getCargoValue(selectedCargo, customCargo)) {
+      return "Informe o cargo.";
+    }
+
+    return "";
   }
 
   async function handleCreateUser() {
@@ -105,8 +174,10 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
       return;
     }
 
-    if (!form.nome.trim() || !form.email.trim() || !form.senhaTemporaria.trim()) {
-      showError("Preencha nome, e-mail e senha temporária.");
+    const validationError = validateCreateForm();
+
+    if (validationError) {
+      showError(validationError);
       return;
     }
 
@@ -115,7 +186,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
 
     try {
       const input: AdminCreateUserInput = {
-        cargo: form.cargo,
+        cargo: createMode === "cliente" ? undefined : getCargoValue(selectedCargo, customCargo),
         email: form.email,
         empresaId,
         nome: form.nome,
@@ -126,7 +197,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
 
       await adminService.criarUsuario(input);
       resetCreateForm();
-      showSuccess(`${createModeLabels[createMode]} cadastrado com sucesso.`);
+      showSuccess(createdMessageLabels[createMode]);
       await loadUsers();
     } catch (error) {
       showError(getAdminErrorMessage(error));
@@ -136,13 +207,18 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
   }
 
   function startEdit(usuario: Usuario) {
+    const userCargo = usuario.cargo ?? "";
+    const knownCargo = cargoOptions.find((cargo) => cargo === userCargo);
+
     setEditingUser(usuario);
     setEditForm({
       ativo: adminService.usuarioEstaAtivo(usuario),
-      cargo: usuario.cargo ?? "",
       nome: usuario.nome,
       telefone: usuario.telefone ?? "",
     });
+    setEditSelectedCargo(knownCargo ?? "Outro");
+    setEditCustomCargo(knownCargo ? "" : userCargo);
+    setEditCargoMenuOpen(false);
     setMessage("");
   }
 
@@ -152,7 +228,17 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
     }
 
     if (!editForm.nome.trim()) {
-      showError("Nome é obrigatório.");
+      showError("Informe o nome.");
+      return;
+    }
+
+    if (!editForm.telefone.trim()) {
+      showError("Informe o telefone.");
+      return;
+    }
+
+    if (editingUser.perfil !== "cliente" && !getCargoValue(editSelectedCargo, editCustomCargo)) {
+      showError("Informe o cargo.");
       return;
     }
 
@@ -160,7 +246,12 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
     setMessage("");
 
     try {
-      await adminService.atualizarUsuario(editingUser.id, editForm);
+      await adminService.atualizarUsuario(editingUser.id, {
+        ativo: editForm.ativo,
+        cargo: editingUser.perfil === "cliente" ? undefined : getCargoValue(editSelectedCargo, editCustomCargo),
+        nome: editForm.nome,
+        telefone: editForm.telefone,
+      });
       setEditingUser(null);
       showSuccess("Usuário atualizado com sucesso.");
       await loadUsers();
@@ -258,7 +349,7 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
               </Text>
             </View>
             <PrimaryButton
-              icon="~"
+              icon="↻"
               loading={loadingUsers}
               onPress={loadUsers}
               style={styles.refreshButton}
@@ -275,6 +366,9 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
                 return (
                   <AppCard key={usuario.id} style={styles.userCard}>
                     <View style={styles.userHeader}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>{getInitials(usuario.nome)}</Text>
+                      </View>
                       <View style={styles.userInfo}>
                         <Text selectable style={styles.userName}>
                           {usuario.nome}
@@ -283,7 +377,10 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
                           {usuario.email}
                         </Text>
                         <Text selectable style={styles.userDetail}>
-                          Perfil: {profileLabels[usuario.perfil]} {usuario.cargo ? `- Cargo: ${usuario.cargo}` : ""}
+                          Cargo: {usuario.cargo || "Não informado"}
+                        </Text>
+                        <Text selectable style={styles.userDetail}>
+                          Perfil: {profileLabels[usuario.perfil]}
                         </Text>
                       </View>
                       <StatusBadge label={active ? "Ativo" : "Inativo"} tone={active ? "approved" : "rejected"} />
@@ -291,21 +388,24 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
 
                     <View style={styles.cardActions}>
                       <PrimaryButton
+                        icon="✎"
                         onPress={() => startEdit(usuario)}
-                        style={styles.smallButton}
+                        style={styles.actionButton}
                         title="Editar"
                         variant="secondary"
                       />
                       <PrimaryButton
+                        icon="↺"
                         onPress={() => handlePasswordReset(usuario)}
                         style={styles.resetButton}
-                        title="Resetar senha"
+                        title="Redefinir senha"
                         variant="secondary"
                       />
                       {active ? (
                         <PrimaryButton
+                          icon="×"
                           onPress={() => handleDeactivateUser(usuario)}
-                          style={styles.smallButton}
+                          style={styles.actionButton}
                           title="Desativar"
                           variant="danger"
                         />
@@ -328,24 +428,40 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
             <Text selectable style={styles.sectionSubtitle}>
               {editingUser.email} - {profileLabels[editingUser.perfil]}
             </Text>
-            <AppTextInput
-              label="Nome"
-              onChangeText={(value) => setEditForm((current) => ({ ...current, nome: value }))}
-              placeholder="Nome do usuário"
-              value={editForm.nome}
-            />
-            <AppTextInput
-              label="Telefone"
-              onChangeText={(value) => setEditForm((current) => ({ ...current, telefone: value }))}
-              placeholder="(11) 99999-0000"
-              value={editForm.telefone}
-            />
-            <AppTextInput
-              label="Cargo"
-              onChangeText={(value) => setEditForm((current) => ({ ...current, cargo: value }))}
-              placeholder="Cargo ou função"
-              value={editForm.cargo}
-            />
+            <View style={styles.formGrid}>
+              <AppTextInput
+                icon="👤"
+                label="Nome"
+                onChangeText={(value) => setEditForm((current) => ({ ...current, nome: value }))}
+                placeholder="Nome do usuário"
+                style={styles.inputControl}
+                value={editForm.nome}
+              />
+              <AppTextInput
+                icon="☎"
+                label="Telefone"
+                onChangeText={(value) => setEditForm((current) => ({ ...current, telefone: value }))}
+                placeholder="(11) 99999-0000"
+                style={styles.inputControl}
+                value={editForm.telefone}
+              />
+            </View>
+
+            {editingUser.perfil !== "cliente" ? (
+              <CargoSelect
+                customCargo={editCustomCargo}
+                isOpen={editCargoMenuOpen}
+                label="Cargo"
+                onChangeCustomCargo={setEditCustomCargo}
+                onSelect={(cargo) => {
+                  setEditSelectedCargo(cargo);
+                  setEditCargoMenuOpen(false);
+                }}
+                onToggle={() => setEditCargoMenuOpen((current) => !current)}
+                selectedCargo={editSelectedCargo}
+              />
+            ) : null}
+
             <View style={styles.modeOptions}>
               {[true, false].map((activeOption) => (
                 <Pressable
@@ -362,14 +478,9 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
                 </Pressable>
               ))}
             </View>
-            <View style={styles.cardActions}>
-              <PrimaryButton loading={saving} onPress={handleUpdateUser} style={styles.saveButton} title="Salvar" />
-              <PrimaryButton
-                onPress={() => setEditingUser(null)}
-                style={styles.smallButton}
-                title="Cancelar"
-                variant="secondary"
-              />
+            <View style={styles.fullWidthActions}>
+              <PrimaryButton loading={saving} onPress={handleUpdateUser} title="Salvar" />
+              <PrimaryButton onPress={() => setEditingUser(null)} title="Cancelar" variant="secondary" />
             </View>
           </AppCard>
         ) : null}
@@ -393,44 +504,155 @@ export function AdministracaoScreen({ empresaId, isOwner, onBack }: Administraca
             ))}
           </View>
 
-          <AppTextInput label="Nome" onChangeText={(value) => updateForm("nome", value)} value={form.nome} />
-          <AppTextInput
-            autoCapitalize="none"
-            keyboardType="email-address"
-            label="E-mail"
-            onChangeText={(value) => updateForm("email", value)}
-            value={form.email}
-          />
-          <AppTextInput label="Telefone" onChangeText={(value) => updateForm("telefone", value)} value={form.telefone} />
-          {createMode !== "cliente" ? (
-            <AppTextInput label="Cargo" onChangeText={(value) => updateForm("cargo", value)} value={form.cargo} />
-          ) : null}
-          <AppTextInput
-            label="Senha temporária"
-            onChangeText={(value) => updateForm("senhaTemporaria", value)}
-            secureTextEntry
-            value={form.senhaTemporaria}
-          />
+          <View style={styles.formGrid}>
+            <AppTextInput
+              icon="👤"
+              label="Nome"
+              onChangeText={(value) => updateForm("nome", value)}
+              placeholder="Nome completo"
+              style={styles.inputControl}
+              value={form.nome}
+            />
+            <AppTextInput
+              autoCapitalize="none"
+              icon="@"
+              keyboardType="email-address"
+              label="E-mail"
+              onChangeText={(value) => updateForm("email", value)}
+              placeholder="email@crystalclear.com"
+              style={styles.inputControl}
+              value={form.email}
+            />
+            <AppTextInput
+              icon="☎"
+              label="Telefone"
+              onChangeText={(value) => updateForm("telefone", value)}
+              placeholder="(11) 99999-0000"
+              style={styles.inputControl}
+              value={form.telefone}
+            />
+          </View>
 
-          <PrimaryButton
-            icon="+"
-            loading={saving}
-            onPress={handleCreateUser}
-            title={`Salvar ${createModeLabels[createMode]}`}
-          />
+          {createMode !== "cliente" ? (
+            <CargoSelect
+              customCargo={customCargo}
+              isOpen={cargoMenuOpen}
+              label="Cargo"
+              onChangeCustomCargo={setCustomCargo}
+              onSelect={(cargo) => {
+                setSelectedCargo(cargo);
+                setCargoMenuOpen(false);
+              }}
+              onToggle={() => setCargoMenuOpen((current) => !current)}
+              selectedCargo={selectedCargo}
+            />
+          ) : null}
+
+          <View style={styles.passwordRow}>
+            <AppTextInput
+              icon="🔐"
+              label="Senha temporária"
+              onChangeText={(value) => updateForm("senhaTemporaria", value)}
+              secureTextEntry={false}
+              style={styles.inputControl}
+              value={form.senhaTemporaria}
+            />
+            <PrimaryButton
+              icon="↻"
+              onPress={() => updateForm("senhaTemporaria", generateTemporaryPassword())}
+              style={styles.generateButton}
+              title="Gerar nova senha"
+              variant="secondary"
+            />
+          </View>
+
+          <View style={styles.fullWidthActions}>
+            <PrimaryButton icon="+" loading={saving} onPress={handleCreateUser} title="Salvar" />
+            <PrimaryButton onPress={resetCreateForm} title="Cancelar" variant="secondary" />
+          </View>
         </AppCard>
       </ScrollView>
     </View>
   );
 }
 
+type CargoSelectProps = {
+  customCargo: string;
+  isOpen: boolean;
+  label: string;
+  onChangeCustomCargo: (value: string) => void;
+  onSelect: (cargo: CargoOption) => void;
+  onToggle: () => void;
+  selectedCargo: CargoOption;
+};
+
+function CargoSelect({
+  customCargo,
+  isOpen,
+  label,
+  onChangeCustomCargo,
+  onSelect,
+  onToggle,
+  selectedCargo,
+}: CargoSelectProps) {
+  return (
+    <View style={styles.selectField}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable
+        accessibilityLabel={`Selecionar ${label}`}
+        accessibilityRole="button"
+        onPress={onToggle}
+        style={({ pressed }) => [styles.selectButton, pressed && styles.modeOptionPressed]}
+      >
+        <Text style={styles.selectIcon}>▾</Text>
+        <Text style={styles.selectText}>{selectedCargo}</Text>
+      </Pressable>
+
+      {isOpen ? (
+        <View style={styles.selectMenu}>
+          {cargoOptions.map((cargo) => (
+            <Pressable
+              accessibilityRole="button"
+              key={cargo}
+              onPress={() => onSelect(cargo)}
+              style={({ pressed }) => [
+                styles.selectOption,
+                selectedCargo === cargo && styles.selectOptionSelected,
+                pressed && styles.modeOptionPressed,
+              ]}
+            >
+              <Text style={styles.selectOptionText}>{cargo}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {selectedCargo === "Outro" ? (
+        <AppTextInput
+          icon="✎"
+          label="Cargo personalizado"
+          onChangeText={onChangeCustomCargo}
+          placeholder="Informe o cargo"
+          style={styles.inputControl}
+          value={customCargo}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function getAdminErrorMessage(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  const message = error instanceof Error ? error.message : "";
 
   const messages: Record<string, string> = {
     "auth/email-already-in-use": "Este e-mail já possui acesso no Firebase.",
     "auth/invalid-email": "Informe um e-mail válido.",
     "auth/weak-password": "A senha temporária precisa ter pelo menos 6 caracteres.",
+    EMAIL_EXISTS: "Este e-mail já possui acesso no Firebase.",
+    INVALID_EMAIL: "Informe um e-mail válido.",
+    OPERATION_NOT_ALLOWED: "Criação por e-mail e senha não está habilitada no Firebase Authentication.",
+    WEAK_PASSWORD: "A senha temporária precisa ter pelo menos 6 caracteres.",
     "permission-denied": "Sem permissão no Firestore. Verifique as regras para o perfil Dono.",
   };
 
@@ -438,10 +660,34 @@ function getAdminErrorMessage(error: unknown) {
     return messages[code];
   }
 
-  return error instanceof Error ? error.message : "Não foi possível concluir a ação.";
+  if (messages[message]) {
+    return messages[message];
+  }
+
+  return message || "Não foi possível concluir a ação.";
 }
 
 const styles = StyleSheet.create({
+  actionButton: {
+    height: 44,
+    width: 126,
+  },
+  avatar: {
+    alignItems: "center",
+    backgroundColor: "rgba(21, 101, 255, 0.28)",
+    borderColor: colors.borderStrong,
+    borderCurve: "continuous",
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  avatarText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   cardActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -456,6 +702,29 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     lineHeight: 22,
+  },
+  fieldLabel: {
+    color: colors.textSecondary,
+    fontFamily: "Inter",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  formGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  fullWidthActions: {
+    gap: 10,
+  },
+  generateButton: {
+    alignSelf: "flex-end",
+    height: 46,
+    width: 190,
+  },
+  inputControl: {
+    minWidth: 240,
   },
   messageText: {
     color: colors.textSecondary,
@@ -491,21 +760,23 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
   },
+  passwordRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
   refreshButton: {
     height: 44,
     width: 132,
   },
   resetButton: {
     height: 44,
-    width: 156,
+    width: 176,
   },
   root: {
     backgroundColor: colors.background,
     flex: 1,
-  },
-  saveButton: {
-    height: 44,
-    width: 130,
   },
   section: {
     gap: 16,
@@ -533,9 +804,54 @@ const styles = StyleSheet.create({
     gap: 5,
     minWidth: 220,
   },
-  smallButton: {
-    height: 44,
-    width: 124,
+  selectButton: {
+    alignItems: "center",
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 46,
+    paddingHorizontal: 14,
+  },
+  selectField: {
+    gap: 8,
+  },
+  selectIcon: {
+    color: colors.primaryLight,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  selectMenu: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderCurve: "continuous",
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+    padding: 8,
+  },
+  selectOption: {
+    borderCurve: "continuous",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  selectOptionSelected: {
+    backgroundColor: "rgba(21, 101, 255, 0.28)",
+  },
+  selectOptionText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  selectText: {
+    color: colors.white,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900",
   },
   userCard: {
     backgroundColor: colors.card,

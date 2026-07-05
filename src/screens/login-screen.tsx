@@ -18,9 +18,12 @@ import colors from "../theme/colors";
 export type TestUserRole = "owner" | "staff" | "client";
 
 type LoginScreenProps = {
+  firstAccessMessage?: string;
   onFirebaseLogin: (email: string, senha: string) => Promise<void>;
   onLogin: (role: TestUserRole) => void;
+  onOpenFirstAccess: () => void;
   onPasswordReset: (email: string) => Promise<void>;
+  showFirstAccessButton: boolean;
 };
 
 const roleOptions: Array<{
@@ -45,7 +48,14 @@ const roleOptions: Array<{
   },
 ];
 
-export function LoginScreen({ onFirebaseLogin, onLogin, onPasswordReset }: LoginScreenProps) {
+export function LoginScreen({
+  firstAccessMessage,
+  onFirebaseLogin,
+  onLogin,
+  onOpenFirstAccess,
+  onPasswordReset,
+  showFirstAccessButton,
+}: LoginScreenProps) {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
@@ -53,6 +63,15 @@ export function LoginScreen({ onFirebaseLogin, onLogin, onPasswordReset }: Login
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState<TestUserRole>("owner");
+
+  React.useEffect(() => {
+    if (!firstAccessMessage) {
+      return;
+    }
+
+    setFeedbackTone("success");
+    setFeedbackMessage(firstAccessMessage);
+  }, [firstAccessMessage]);
 
   async function handleFirebaseLogin() {
     setFeedbackMessage(null);
@@ -157,6 +176,15 @@ export function LoginScreen({ onFirebaseLogin, onLogin, onPasswordReset }: Login
             title="Esqueci minha senha"
             variant="secondary"
           />
+
+          {showFirstAccessButton ? (
+            <PrimaryButton
+              icon="+"
+              onPress={onOpenFirstAccess}
+              title="Configurar primeiro acesso"
+              variant="success"
+            />
+          ) : null}
 
           <View style={styles.roleSection}>
             <Text style={styles.label}>Entrar como</Text>

@@ -1,5 +1,4 @@
-import { deleteApp, getApp, initializeApp } from "firebase/app";
-import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signOut } from "firebase/auth";
+import { sendPasswordResetEmail } from "firebase/auth";
 import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 import { firebaseConfig } from "../firebase/config";
@@ -7,8 +6,6 @@ import { getFirebaseAuth } from "../firebase/auth";
 import { getFirebaseFirestore } from "../firebase/firestore";
 import { usuariosRepository } from "../repositories/usuarios-repository";
 import type { Usuario, UsuarioPerfil } from "../types/usuario";
-
-const secondaryAppName = "crystal-clear-admin-user-creation";
 
 export type AdminCreateUserInput = {
   cargo?: string;
@@ -27,12 +24,39 @@ export type AdminUpdateUserInput = {
   telefone?: string;
 };
 
-function getSecondaryAuth() {
-  try {
-    return getAuth(getApp(secondaryAppName));
-  } catch {
-    return getAuth(initializeApp(firebaseConfig, secondaryAppName));
+type FirebaseSignUpResponse = {
+  localId?: string;
+  error?: {
+    message?: string;
+  };
+};
+
+async function createAuthUserWithRestApi(email: string, password: string) {
+  if (!firebaseConfig.apiKey) {
+    throw new Error("Firebase API key nao configurada.");
   }
+
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
+    {
+      body: JSON.stringify({
+        email,
+        password,
+        returnSecureToken: false,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    }
+  );
+  const data = (await response.json()) as FirebaseSignUpResponse;
+
+  if (!response.ok || !data.localId) {
+    throw new Error(data.error?.message ?? "Nao foi possivel criar usuario no Firebase Authentication.");
+  }
+
+  return data.localId;
 }
 
 export const adminService = {
@@ -41,13 +65,7 @@ export const adminService = {
   },
 
   async criarUsuario(input: AdminCreateUserInput): Promise<string> {
-    const secondaryAuth = getSecondaryAuth();
-    const credential = await createUserWithEmailAndPassword(
-      secondaryAuth,
-      input.email.trim(),
-      input.senhaTemporaria
-    );
-    const uid = credential.user.uid;
+    const uid = await createAuthUserWithRestApi(input.email.trim(), input.senhaTemporaria);
 
     await setDoc(doc(getFirebaseFirestore(), "usuarios", uid), {
       ativo: true,
@@ -62,9 +80,6 @@ export const adminService = {
       telefone: input.telefone?.trim() || null,
       atualizadoEm: serverTimestamp(),
     });
-
-    await signOut(secondaryAuth);
-    await deleteApp(secondaryAuth.app).catch(() => undefined);
 
     return uid;
   },

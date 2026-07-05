@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AdministracaoScreen } from "./src/screens/AdministracaoScreen";
@@ -15,17 +15,18 @@ import { HistoricoScreen } from "./src/screens/HistoricoScreen";
 import { HomeScreen } from "./src/screens/home-screen";
 import { LoginScreen, type TestUserRole } from "./src/screens/login-screen";
 import { NewClientScreen } from "./src/screens/new-client-screen";
+import { PrimeiroAcessoScreen } from "./src/screens/PrimeiroAcessoScreen";
 import { ProdutosScreen } from "./src/screens/produtos-screen";
 import { SplashScreen } from "./src/screens/splash-screen";
-import { authService } from "./src/services/auth-service";
-import { usuariosRepository } from "./src/repositories/usuarios-repository";
+import { AuthProvider, useAuthContext } from "./src/contexts/auth-context";
+import { firstAccessService } from "./src/services/first-access-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
 import type { Client, ClientFormData } from "./src/types/client";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
-import type { Usuario, UsuarioPerfil } from "./src/types/usuario";
+import type { UsuarioPerfil } from "./src/types/usuario";
 import {
   initialProductRequests,
   type ProductRequest,
@@ -106,6 +107,7 @@ const initialEmployees: Employee[] = [
 type AppScreen =
   | "login"
   | "splash"
+  | "first-access"
   | "home"
   | "clients"
   | "new-client"
@@ -122,9 +124,28 @@ type AppScreen =
   | "firebase-diagnostics";
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
+  const {
+    loading: authLoading,
+    login: loginWithFirebase,
+    logout: logoutFromFirebase,
+    resetarSenha,
+    usuario: authenticatedUserProfile,
+  } = useAuthContext();
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("splash");
   const [activeRole, setActiveRole] = useState<TestUserRole>("owner");
-  const [authenticatedUserProfile, setAuthenticatedUserProfile] = useState<Usuario | null>(null);
+  const [firstAccessMessage, setFirstAccessMessage] = useState("");
+  const [showFirstAccessButton, setShowFirstAccessButton] = useState(true);
+  const [isTestMode, setIsTestMode] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
@@ -232,7 +253,8 @@ export default function App() {
       ? dashboardMetrics.filter((metric) => metric.id !== "payments")
       : dashboardMetrics;
   const canAccessFinance = activeRole === "owner";
-  const canAccessAdmin = authenticatedUserProfile ? authenticatedUserProfile.perfil === "dono" : activeRole === "owner";
+  const canAccessAdmin =
+    authenticatedUserProfile?.perfil === "dono" || (isTestMode && activeRole === "owner");
   const profileLabel =
     activeRole === "staff" && activeEmployee
       ? `${getProfileLabel(activeRole)} - ${activeEmployee.name}`
@@ -240,8 +262,62 @@ export default function App() {
   const testClient = clients[0] ?? fallbackTestClient;
   const testClientPaymentStatus = paymentStatuses[testClient.id] ?? "pending";
 
+  async function checkFirstAccessAvailability() {
+    try {
+      const hasOwner = await firstAccessService.hasConfiguredOwner();
+      setShowFirstAccessButton(!hasOwner);
+    } catch (error) {
+      console.warn("Não foi possível verificar primeiro acesso.", error);
+      setShowFirstAccessButton(true);
+    }
+  }
+
+  useEffect(() => {
+    void checkFirstAccessAvailability();
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || isTestMode || !authenticatedUserProfile) {
+      return;
+    }
+
+    setActiveRole(mapUsuarioPerfilToTestRole(authenticatedUserProfile.perfil));
+
+    if (currentScreen === "login") {
+      setCurrentScreen(getInitialScreenForPerfil(authenticatedUserProfile.perfil));
+    }
+  }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
+
+  useEffect(() => {
+    if (authLoading || currentScreen !== "splash") {
+      return;
+    }
+
+    setCurrentScreen(
+      !isTestMode && authenticatedUserProfile
+        ? getInitialScreenForPerfil(authenticatedUserProfile.perfil)
+        : "login"
+    );
+  }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
+
+  useEffect(() => {
+    if (
+      authLoading ||
+      isTestMode ||
+      currentScreen === "login" ||
+      currentScreen === "splash" ||
+      currentScreen === "first-access"
+    ) {
+      return;
+    }
+
+    if (!authenticatedUserProfile) {
+      setCurrentScreen("login");
+    }
+  }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
+
   function handleLogin(role: TestUserRole) {
-    setAuthenticatedUserProfile(null);
+    setIsTestMode(true);
     setActiveRole(role);
     setCurrentScreen(role === "client" ? "client-area" : "home");
   }
@@ -252,22 +328,21 @@ export default function App() {
     }
 
     try {
-      const credential = await authService.login(email, senha);
-      const profile = await usuariosRepository.getById(credential.user.uid);
+      const profile = await loginWithFirebase(email, senha);
+      setIsTestMode(false);
 
       if (!profile) {
         throw new Error("Usuário autenticado, mas perfil ainda não configurado.");
       }
 
-      const isActiveProfile = profile.ativo ?? profile.status === "ativo";
+      const isActiveProfile = profile.ativo;
 
       if (!isActiveProfile) {
         throw new Error("Seu usuario esta inativo ou pendente. Fale com o administrador.");
       }
 
-      setAuthenticatedUserProfile(profile);
       setActiveRole(mapUsuarioPerfilToTestRole(profile.perfil));
-      setCurrentScreen(profile.perfil === "cliente" ? "client-area" : "home");
+      setCurrentScreen(getInitialScreenForPerfil(profile.perfil));
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
     }
@@ -275,18 +350,18 @@ export default function App() {
 
   async function handlePasswordReset(email: string) {
     try {
-      await authService.resetarSenha(email);
+      await resetarSenha(email);
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
     }
   }
 
   async function handleSwitchProfile() {
-    if (authenticatedUserProfile) {
-      await authService.logout().catch((error: unknown) => console.warn("Falha ao sair do Firebase.", error));
-      setAuthenticatedUserProfile(null);
+    if (!isTestMode && authenticatedUserProfile) {
+      await logoutFromFirebase().catch((error: unknown) => console.warn("Falha ao sair do Firebase.", error));
     }
 
+    setIsTestMode(false);
     setCurrentScreen("login");
   }
 
@@ -581,16 +656,46 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
+    <>
       {currentScreen === "splash" ? (
-        <SplashScreen onFinish={() => setCurrentScreen("login")} />
+        <SplashScreen
+          onFinish={() => {
+            if (authLoading) {
+              return;
+            }
+
+            setCurrentScreen(
+              !isTestMode && authenticatedUserProfile
+                ? getInitialScreenForPerfil(authenticatedUserProfile.perfil)
+                : "login"
+            );
+          }}
+        />
       ) : null}
 
       {currentScreen === "login" ? (
         <LoginScreen
+          firstAccessMessage={firstAccessMessage}
           onFirebaseLogin={handleFirebaseLogin}
           onLogin={handleLogin}
+          onOpenFirstAccess={() => {
+            setFirstAccessMessage("");
+            setCurrentScreen("first-access");
+          }}
           onPasswordReset={handlePasswordReset}
+          showFirstAccessButton={showFirstAccessButton}
+        />
+      ) : null}
+
+      {currentScreen === "first-access" ? (
+        <PrimeiroAcessoScreen
+          onBack={() => setCurrentScreen("login")}
+          onConfigured={() => {
+            setFirstAccessMessage("Primeiro acesso criado com sucesso. Faça login.");
+            setShowFirstAccessButton(false);
+            setCurrentScreen("login");
+            void checkFirstAccessAvailability();
+          }}
         />
       ) : null}
 
@@ -742,7 +847,7 @@ export default function App() {
         <FirebaseDiagnosticsScreen onBack={() => setCurrentScreen("home")} />
       ) : null}
 
-    </SafeAreaProvider>
+    </>
   );
 }
 
@@ -770,6 +875,10 @@ function mapUsuarioPerfilToTestRole(perfil: UsuarioPerfil): TestUserRole {
   }
 
   return "staff";
+}
+
+function getInitialScreenForPerfil(perfil: UsuarioPerfil): AppScreen {
+  return perfil === "cliente" ? "client-area" : "home";
 }
 
 function getAuthErrorMessage(error: unknown) {
