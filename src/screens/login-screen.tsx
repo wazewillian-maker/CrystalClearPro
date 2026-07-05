@@ -18,7 +18,9 @@ import colors from "../theme/colors";
 export type TestUserRole = "owner" | "staff" | "client";
 
 type LoginScreenProps = {
+  onFirebaseLogin: (email: string, senha: string) => Promise<void>;
   onLogin: (role: TestUserRole) => void;
+  onPasswordReset: (email: string) => Promise<void>;
 };
 
 const roleOptions: Array<{
@@ -43,8 +45,51 @@ const roleOptions: Array<{
   },
 ];
 
-export function LoginScreen({ onLogin }: LoginScreenProps) {
+export function LoginScreen({ onFirebaseLogin, onLogin, onPasswordReset }: LoginScreenProps) {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = React.useState<"error" | "success">("error");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState<TestUserRole>("owner");
+
+  async function handleFirebaseLogin() {
+    setFeedbackMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      await onFirebaseLogin(email.trim(), password);
+    } catch (error) {
+      setFeedbackTone("error");
+      setFeedbackMessage(error instanceof Error ? error.message : "Nao foi possivel entrar.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handlePasswordReset() {
+    setFeedbackMessage(null);
+
+    if (!email.trim()) {
+      setFeedbackTone("error");
+      setFeedbackMessage("Informe o e-mail para receber o link de redefinicao de senha.");
+      return;
+    }
+
+    setIsResettingPassword(true);
+
+    try {
+      await onPasswordReset(email.trim());
+      setFeedbackTone("success");
+      setFeedbackMessage("Enviamos um e-mail para redefinir sua senha.");
+    } catch (error) {
+      setFeedbackTone("error");
+      setFeedbackMessage(error instanceof Error ? error.message : "Nao foi possivel enviar o reset de senha.");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  }
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.root}>
@@ -71,13 +116,47 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           <View style={styles.form}>
             <AppTextInput
               autoCapitalize="none"
+              autoComplete="email"
               keyboardType="email-address"
               label="E-mail"
+              onChangeText={setEmail}
               placeholder="tecnico@crystalclear.com"
+              value={email}
             />
 
-            <AppTextInput label="Senha" placeholder="********" secureTextEntry />
+            <AppTextInput
+              autoComplete="password"
+              label="Senha"
+              onChangeText={setPassword}
+              placeholder="********"
+              secureTextEntry
+              value={password}
+            />
           </View>
+
+          {feedbackMessage ? (
+            <Text
+              selectable
+              style={[styles.feedback, feedbackTone === "success" ? styles.feedbackSuccess : styles.feedbackError]}
+            >
+              {feedbackMessage}
+            </Text>
+          ) : null}
+
+          <PrimaryButton
+            icon=">"
+            loading={isSubmitting}
+            title="Entrar"
+            onPress={handleFirebaseLogin}
+          />
+
+          <PrimaryButton
+            icon="?"
+            loading={isResettingPassword}
+            onPress={handlePasswordReset}
+            title="Esqueci minha senha"
+            variant="secondary"
+          />
 
           <View style={styles.roleSection}>
             <Text style={styles.label}>Entrar como</Text>
@@ -108,20 +187,14 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           </View>
 
           <PrimaryButton
-            icon=">"
-            title="Entrar"
-            onPress={() => onLogin(selectedRole)}
-          />
-
-          <PrimaryButton
             icon="~"
-            onPress={() => onLogin("owner")}
+            onPress={() => onLogin(selectedRole)}
             title="Modo Teste"
             variant="secondary"
           />
 
           <Text selectable style={styles.demoHint}>
-            Demo local, sem autenticacao real e sem Firebase.
+            Use o Modo Teste enquanto o login real esta sendo validado.
           </Text>
         </AppCard>
 
@@ -189,6 +262,25 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 14,
+  },
+  feedback: {
+    borderCurve: "continuous",
+    borderRadius: 14,
+    borderWidth: 1,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    padding: 12,
+  },
+  feedbackError: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderColor: "rgba(239, 68, 68, 0.36)",
+    color: colors.textSecondary,
+  },
+  feedbackSuccess: {
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    borderColor: "rgba(34, 197, 94, 0.38)",
+    color: colors.textSecondary,
   },
   label: {
     color: colors.white,

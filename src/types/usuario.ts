@@ -9,11 +9,14 @@ export type Usuario = {
   nome: string;
   email: string;
   telefone?: string;
+  cargo?: string;
   perfil: UsuarioPerfil;
   status: UsuarioStatus;
+  ativo?: boolean;
   clienteId?: string;
   funcionarioId?: string;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
+  createdAt?: Timestamp;
   ultimoLoginEm?: Timestamp;
 };

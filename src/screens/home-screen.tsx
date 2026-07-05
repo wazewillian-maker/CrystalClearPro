@@ -36,6 +36,7 @@ export type EmployeeSummary = {
 
 type HomeScreenProps = {
   agendaItems: AgendaItem[];
+  canAccessAdmin: boolean;
   canManageTeam: boolean;
   canAccessFinance: boolean;
   clients: Client[];
@@ -47,6 +48,7 @@ type HomeScreenProps = {
   onOpenAttendance: () => void;
   onOpenHistory: () => void;
   onOpenAgenda: () => void;
+  onOpenAdmin: () => void;
   onOpenFinance: () => void;
   onOpenFirebaseDiagnostics: () => void;
   onOpenClientArea: () => void;
@@ -59,6 +61,7 @@ type HomeScreenProps = {
 
 export function HomeScreen({
   agendaItems,
+  canAccessAdmin,
   canManageTeam,
   canAccessFinance,
   clients,
@@ -70,6 +73,7 @@ export function HomeScreen({
   onOpenAttendance,
   onOpenHistory,
   onOpenAgenda,
+  onOpenAdmin,
   onOpenFinance,
   onOpenFirebaseDiagnostics,
   onOpenClientArea,
@@ -277,6 +281,15 @@ export function HomeScreen({
             {canManageTeam ? (
               <PrimaryButton icon="+" onPress={onOpenTeam} style={styles.headerButton} title="Equipe" />
             ) : null}
+            {canAccessAdmin ? (
+              <PrimaryButton
+                icon=">"
+                onPress={onOpenAdmin}
+                style={styles.adminButton}
+                title="Administração"
+                variant="secondary"
+              />
+            ) : null}
             <PrimaryButton
               icon="~"
               onPress={onOpenFirebaseDiagnostics}
@@ -320,6 +333,12 @@ const styles = StyleSheet.create({
   },
   actionsSection: {
     gap: 14,
+  },
+  adminButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 178,
   },
   agendaCard: {
     padding: 14,

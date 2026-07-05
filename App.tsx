@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AdministracaoScreen } from "./src/screens/AdministracaoScreen";
 import { AgendaScreen } from "./src/screens/AgendaScreen";
 import { AtendimentoScreen } from "./src/screens/AtendimentoScreen";
 import { ClienteAreaScreen } from "./src/screens/ClienteAreaScreen";
@@ -16,12 +17,15 @@ import { LoginScreen, type TestUserRole } from "./src/screens/login-screen";
 import { NewClientScreen } from "./src/screens/new-client-screen";
 import { ProdutosScreen } from "./src/screens/produtos-screen";
 import { SplashScreen } from "./src/screens/splash-screen";
+import { authService } from "./src/services/auth-service";
+import { usuariosRepository } from "./src/repositories/usuarios-repository";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
 import type { Client, ClientFormData } from "./src/types/client";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
+import type { Usuario, UsuarioPerfil } from "./src/types/usuario";
 import {
   initialProductRequests,
   type ProductRequest,
@@ -112,6 +116,7 @@ type AppScreen =
   | "history"
   | "agenda"
   | "team"
+  | "admin"
   | "finance"
   | "client-area"
   | "firebase-diagnostics";
@@ -119,6 +124,7 @@ type AppScreen =
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("splash");
   const [activeRole, setActiveRole] = useState<TestUserRole>("owner");
+  const [authenticatedUserProfile, setAuthenticatedUserProfile] = useState<Usuario | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
@@ -130,7 +136,9 @@ export default function App() {
   const selectedClient = clients.find((client) => client.id === selectedClientId);
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
   const activeEmployee =
-    activeRole === "owner"
+    authenticatedUserProfile?.funcionarioId
+      ? employees.find((employee) => employee.id === authenticatedUserProfile.funcionarioId) ?? employees[0]
+      : activeRole === "owner"
       ? employees.find((employee) => employee.role === "owner") ?? employees[0]
       : employees.find((employee) => employee.status === "active" && employee.role !== "owner") ?? employees[0];
   const visibleAgendaItems =
@@ -224,6 +232,7 @@ export default function App() {
       ? dashboardMetrics.filter((metric) => metric.id !== "payments")
       : dashboardMetrics;
   const canAccessFinance = activeRole === "owner";
+  const canAccessAdmin = authenticatedUserProfile ? authenticatedUserProfile.perfil === "dono" : activeRole === "owner";
   const profileLabel =
     activeRole === "staff" && activeEmployee
       ? `${getProfileLabel(activeRole)} - ${activeEmployee.name}`
@@ -232,11 +241,52 @@ export default function App() {
   const testClientPaymentStatus = paymentStatuses[testClient.id] ?? "pending";
 
   function handleLogin(role: TestUserRole) {
+    setAuthenticatedUserProfile(null);
     setActiveRole(role);
     setCurrentScreen(role === "client" ? "client-area" : "home");
   }
 
-  function handleSwitchProfile() {
+  async function handleFirebaseLogin(email: string, senha: string) {
+    if (!email || !senha) {
+      throw new Error("Informe e-mail e senha para entrar.");
+    }
+
+    try {
+      const credential = await authService.login(email, senha);
+      const profile = await usuariosRepository.getById(credential.user.uid);
+
+      if (!profile) {
+        throw new Error("Usuário autenticado, mas perfil ainda não configurado.");
+      }
+
+      const isActiveProfile = profile.ativo ?? profile.status === "ativo";
+
+      if (!isActiveProfile) {
+        throw new Error("Seu usuario esta inativo ou pendente. Fale com o administrador.");
+      }
+
+      setAuthenticatedUserProfile(profile);
+      setActiveRole(mapUsuarioPerfilToTestRole(profile.perfil));
+      setCurrentScreen(profile.perfil === "cliente" ? "client-area" : "home");
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error));
+    }
+  }
+
+  async function handlePasswordReset(email: string) {
+    try {
+      await authService.resetarSenha(email);
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error));
+    }
+  }
+
+  async function handleSwitchProfile() {
+    if (authenticatedUserProfile) {
+      await authService.logout().catch((error: unknown) => console.warn("Falha ao sair do Firebase.", error));
+      setAuthenticatedUserProfile(null);
+    }
+
     setCurrentScreen("login");
   }
 
@@ -537,13 +587,18 @@ export default function App() {
       ) : null}
 
       {currentScreen === "login" ? (
-        <LoginScreen onLogin={handleLogin} />
+        <LoginScreen
+          onFirebaseLogin={handleFirebaseLogin}
+          onLogin={handleLogin}
+          onPasswordReset={handlePasswordReset}
+        />
       ) : null}
 
       {currentScreen === "home" ? (
         <HomeScreen
           agendaItems={visibleAgendaItems}
           canAccessFinance={canAccessFinance}
+          canAccessAdmin={canAccessAdmin}
           clients={clients}
           completionSummary={completionSummary}
           dashboardMetrics={visibleDashboardMetrics}
@@ -558,9 +613,10 @@ export default function App() {
           onOpenFirebaseDiagnostics={() => setCurrentScreen("firebase-diagnostics")}
           onOpenClientArea={() => setCurrentScreen("client-area")}
           onOpenTeam={() => setCurrentScreen("team")}
+          onOpenAdmin={() => setCurrentScreen("admin")}
           onStartAttendance={handleStartAgendaAttendance}
           onSwitchProfile={handleSwitchProfile}
-          onLogout={() => setCurrentScreen("login")}
+          onLogout={handleSwitchProfile}
           profileLabel={profileLabel}
         />
       ) : null}
@@ -652,6 +708,14 @@ export default function App() {
         />
       ) : null}
 
+      {currentScreen === "admin" ? (
+        <AdministracaoScreen
+          empresaId={authenticatedUserProfile?.empresaId}
+          isOwner={canAccessAdmin}
+          onBack={() => setCurrentScreen("home")}
+        />
+      ) : null}
+
       {currentScreen === "finance" && canAccessFinance ? (
         <FinanceiroScreen
           clients={clients}
@@ -694,6 +758,49 @@ function getProfileLabel(role: TestUserRole) {
   };
 
   return labels[role];
+}
+
+function mapUsuarioPerfilToTestRole(perfil: UsuarioPerfil): TestUserRole {
+  if (perfil === "cliente") {
+    return "client";
+  }
+
+  if (perfil === "dono") {
+    return "owner";
+  }
+
+  return "staff";
+}
+
+function getAuthErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message === "Usuário autenticado, mas perfil ainda não configurado.") {
+    return "Usuário autenticado, mas perfil ainda não configurado.";
+  }
+
+  if (error instanceof Error && error.message === "Seu usuario esta inativo ou pendente. Fale com o administrador.") {
+    return error.message;
+  }
+
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+
+  const messages: Record<string, string> = {
+    "auth/invalid-credential": "E-mail ou senha invalidos.",
+    "auth/invalid-email": "Informe um e-mail valido.",
+    "auth/missing-password": "Informe a senha.",
+    "auth/network-request-failed": "Nao foi possivel conectar ao Firebase. Verifique sua internet.",
+    "auth/too-many-requests": "Muitas tentativas. Aguarde alguns minutos e tente novamente.",
+    "auth/user-disabled": "Este usuario esta desativado.",
+    "auth/user-not-found": "Usuario nao encontrado.",
+    "auth/wrong-password": "Senha incorreta.",
+    "permission-denied": "Login realizado, mas o app nao conseguiu ler o perfil no Firestore por falta de permissao.",
+    unavailable: "Firestore indisponivel no momento. Tente novamente em instantes.",
+  };
+
+  if (messages[code]) {
+    return messages[code];
+  }
+
+  return error instanceof Error ? error.message : "Nao foi possivel autenticar.";
 }
 
 const fallbackTestClient: Client = {
