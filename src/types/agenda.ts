@@ -12,7 +12,8 @@ export type AgendaItem = {
   assignedEmployeeId?: string;
   assignedEmployeeName?: string;
   funcionarioId?: string;
-  origem?: "Automatica" | "Manual";
+  origem?: "Automatica" | "Manual" | "Agenda Inteligente";
+  poolName?: string;
   status: AgendaStatus;
 };
 

@@ -30,7 +30,7 @@ import { storageService } from "./src/services/storage-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
-import type { Client, ClientFormData, ClientPlan } from "./src/types/client";
+import type { Client, ClientFormData, ClientPlan, WeekDay } from "./src/types/client";
 import type { Cliente } from "./src/types/cliente";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
 import type { PaymentStatuses } from "./src/types/finance";
@@ -177,6 +177,7 @@ function AppContent() {
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
   const [agendaError, setAgendaError] = useState("");
   const [agendaLoading, setAgendaLoading] = useState(false);
+  const [smartAgendaLoading, setSmartAgendaLoading] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatuses>({});
   const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
@@ -508,6 +509,9 @@ function AppContent() {
         clientesRepository.listByEmpresa(empresaId),
         piscinasRepository.listByEmpresa(empresaId),
       ]);
+      const activePools = firestorePools
+        .filter((pool) => pool.status !== "inativa")
+        .map(sanitizePoolReferencePhoto);
 
       setClients(
         firestoreClients
@@ -515,11 +519,11 @@ function AppContent() {
           .map((client) =>
             mapFirestoreClientToAppClient(
               client,
-              firestorePools.find((pool) => pool.clienteId === client.id && pool.status !== "inativa"),
+              activePools.find((pool) => pool.clienteId === client.id),
             ),
           ),
       );
-      setPools(firestorePools.filter((pool) => pool.status !== "inativa"));
+      setPools(activePools);
     } catch (error) {
       setClientsError(getFirestoreFriendlyError(error, "Nao foi possivel carregar os clientes do Firestore."));
     } finally {
@@ -543,7 +547,9 @@ function AppContent() {
         return;
       }
 
-      const activePools = firestorePools.filter((pool) => pool.status !== "inativa");
+      const activePools = firestorePools
+        .filter((pool) => pool.status !== "inativa")
+        .map(sanitizePoolReferencePhoto);
       setClients([
         mapFirestoreClientToAppClient(
           firestoreClient,
@@ -588,22 +594,34 @@ function AppContent() {
     setAgendaError("");
 
     try {
+      if (profile.perfil === "funcionario" && !profile.funcionarioId) {
+        setAgendaItems([]);
+        setAgendaError("Funcionario sem vinculo operacional configurado.");
+        return;
+      }
+
+      const funcionarioId = profile.funcionarioId;
       const firestoreVisits =
-        profile.perfil === "dono" || profile.perfil === "socio" || !profile.funcionarioId
-          ? await visitasRepository.listByEmpresa(profile.empresaId)
-          : await visitasRepository.listByFuncionario(profile.empresaId, profile.funcionarioId);
-      const agendaClients =
-        profile.perfil === "funcionario"
-          ? await loadOperationalClientsForVisits(firestoreVisits)
-          : clients;
+        profile.perfil === "funcionario" && funcionarioId
+          ? await visitasRepository.listByFuncionario(profile.empresaId, funcionarioId)
+          : await visitasRepository.listByEmpresa(profile.empresaId);
+      let agendaClients = clients;
+      let agendaPools = pools;
+
+      if (profile.perfil === "funcionario") {
+        const operationalData = await loadOperationalDataForVisits(firestoreVisits);
+        agendaClients = operationalData.clients;
+        agendaPools = operationalData.pools;
+      }
 
       if (profile.perfil === "funcionario") {
         setClients((currentClients) =>
           haveSameOperationalClients(currentClients, agendaClients) ? currentClients : agendaClients,
         );
+        setPools(agendaPools);
       }
 
-      setAgendaItems(firestoreVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees)));
+      setAgendaItems(firestoreVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees, agendaPools)));
     } catch (error) {
       setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar a agenda do Firestore."));
     } finally {
@@ -611,7 +629,7 @@ function AppContent() {
     }
   }
 
-  async function loadOperationalClientsForVisits(visits: Visita[]) {
+  async function loadOperationalDataForVisits(visits: Visita[]) {
     const uniqueClienteIds = Array.from(new Set(visits.map((visit) => visit.clienteId).filter(Boolean)));
     const uniquePiscinaIds = Array.from(new Set(visits.map((visit) => visit.piscinaId).filter(Boolean)));
     const [visitClients, visitPools] = await Promise.all([
@@ -623,13 +641,16 @@ function AppContent() {
       (client): client is Cliente => client !== null && client.status !== "inativo",
     );
 
-    return validClients
+    return {
+      clients: validClients
       .map((client) =>
         mapFirestoreClientToOperationalClient(
           client,
           validPools.find((pool) => pool.clienteId === client.id && pool.status !== "inativa"),
         ),
-      );
+      ),
+      pools: validPools.filter((pool) => pool.status !== "inativa").map(sanitizePoolReferencePhoto),
+    };
   }
 
   async function handleSaveClient(clientData: ClientFormData) {
@@ -646,9 +667,7 @@ function AppContent() {
           status: "ativo",
           telefone: clientData.phone,
         });
-        const initialReferencePhotoUrl = !isTemporaryPhotoUri(clientData.referencePhotoUri ?? "")
-          ? clientData.referencePhotoUri
-          : undefined;
+        const initialReferencePhotoUrl = getPersistedPhotoUri(clientData.referencePhotoUri);
         const initialReferencePhotoData = initialReferencePhotoUrl ? { fotoReferenciaUrl: initialReferencePhotoUrl } : {};
         const piscinaId = await piscinasRepository.create({
           clienteId,
@@ -725,7 +744,7 @@ function AppContent() {
         clienteId: newClient.id,
         diaVencimento: newClient.diaVencimento,
         empresaId: "test-mode",
-        fotoReferenciaUrl: newClient.referencePhotoUri,
+        fotoReferenciaUrl: getPersistedPhotoUri(newClient.referencePhotoUri),
         id: `${newClient.id}-pool`,
         litros: newClient.liters,
         nome: newClient.poolName?.trim() || "Piscina principal",
@@ -771,8 +790,8 @@ function AppContent() {
           );
           const photoFields = getUploadedPhotoFields(uploadedPhoto);
           const existingPhotoUrl =
-            selectedPool?.fotoReferenciaUrl ??
-            (!isTemporaryPhotoUri(poolData.fotoReferenciaUrl ?? "") ? poolData.fotoReferenciaUrl : undefined);
+            getPersistedPhotoUri(selectedPool?.fotoReferenciaUrl) ??
+            getPersistedPhotoUri(poolData.fotoReferenciaUrl);
           const nextPoolData = {
             ...poolData,
             ...photoFields,
@@ -802,6 +821,16 @@ function AppContent() {
             "Tempo esgotado ao atualizar a piscina no Firestore.",
           );
 
+          await refreshFutureSmartAgendaForPool(authenticatedUserProfile.empresaId, {
+            ...selectedPool,
+            ...nextPoolData,
+            empresaId: authenticatedUserProfile.empresaId,
+            id: selectedPoolId,
+            status: "ativa",
+          }).catch((error: unknown) => {
+            setAgendaError(getFirestoreFriendlyError(error, "Piscina salva, mas nao foi possivel atualizar as visitas futuras."));
+          });
+
           setPools((currentPools) =>
             currentPools.map((pool) =>
               pool.id === selectedPoolId
@@ -821,12 +850,13 @@ function AppContent() {
           return;
         }
 
-        const initialPhotoData = isTemporaryPhotoUri(poolData.fotoReferenciaUrl ?? "")
-          ? {}
-          : {
+        const initialPhotoUrl = getPersistedPhotoUri(poolData.fotoReferenciaUrl);
+        const initialPhotoData = initialPhotoUrl
+          ? {
               fotoReferenciaPath: poolData.fotoReferenciaPath,
-              fotoReferenciaUrl: poolData.fotoReferenciaUrl,
-            };
+              fotoReferenciaUrl: initialPhotoUrl,
+            }
+          : {};
         const piscinaId = await withOperationTimeout(
           piscinasRepository.create({
             clienteId: poolData.clienteId,
@@ -955,13 +985,7 @@ function AppContent() {
   }
 
   function isTemporaryPhotoUri(uri: string) {
-    return (
-      uri.startsWith("blob:") ||
-      uri.startsWith("file:") ||
-      uri.startsWith("data:") ||
-      uri.startsWith("content:") ||
-      uri.startsWith("asset:")
-    );
+    return isTemporaryLocalUri(uri);
   }
 
   function handleCreateEmployee(employeeData: EmployeeFormData) {
@@ -1107,8 +1131,8 @@ function AppContent() {
           );
           const photoFields = getUploadedPhotoFields(uploadedPhoto);
           const existingPhotoUrl =
-            currentPool?.fotoReferenciaUrl ??
-            (!isTemporaryPhotoUri(clientData.referencePhotoUri ?? "") ? clientData.referencePhotoUri : undefined);
+            getPersistedPhotoUri(currentPool?.fotoReferenciaUrl) ??
+            getPersistedPhotoUri(clientData.referencePhotoUri);
           clientData = {
             ...clientData,
             referencePhotoUri: photoFields?.fotoReferenciaUrl ?? existingPhotoUrl,
@@ -1116,7 +1140,7 @@ function AppContent() {
           await piscinasRepository.update(piscinaId, {
             diaVencimento: clientData.diaVencimento,
             fotoReferenciaPath: photoFields?.fotoReferenciaPath ?? currentPool?.fotoReferenciaPath,
-            fotoReferenciaUrl: clientData.referencePhotoUri,
+            fotoReferenciaUrl: clientData.referencePhotoUri ?? "",
             litros: clientData.liters,
             nome: clientData.poolName?.trim() || "Piscina principal",
             observacoes: clientData.poolNotes ?? "",
@@ -1127,11 +1151,30 @@ function AppContent() {
             tipo: clientData.poolType,
             valorMensal: clientData.valorMensal,
           });
+          await refreshFutureSmartAgendaForPool(authenticatedUserProfile.empresaId, {
+            ...currentPool,
+            clienteId: selectedClientId,
+            diaVencimento: clientData.diaVencimento,
+            empresaId: authenticatedUserProfile.empresaId,
+            fotoReferenciaPath: photoFields?.fotoReferenciaPath ?? currentPool?.fotoReferenciaPath,
+            fotoReferenciaUrl: clientData.referencePhotoUri ?? "",
+            id: piscinaId,
+            litros: clientData.liters,
+            nome: clientData.poolName?.trim() || "Piscina principal",
+            observacoes: clientData.poolNotes ?? "",
+            planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+            diaMensal: clientData.diaMesAtendimento,
+            diasAtendimento: clientData.diasAtendimento ?? [],
+            status: "ativa",
+            tipo: clientData.poolType,
+            valorMensal: clientData.valorMensal,
+          }).catch((error: unknown) => {
+            setAgendaError(getFirestoreFriendlyError(error, "Cliente salvo, mas nao foi possivel atualizar as visitas futuras."));
+          });
           showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         } else {
-          const initialReferencePhotoUrl = !isTemporaryPhotoUri(clientData.referencePhotoUri ?? "")
-            ? clientData.referencePhotoUri
-            : undefined;
+          const initialReferencePhotoUrl = getPersistedPhotoUri(clientData.referencePhotoUri);
           const initialReferencePhotoData = initialReferencePhotoUrl ? { fotoReferenciaUrl: initialReferencePhotoUrl } : {};
           const piscinaId = await piscinasRepository.create({
             clienteId: selectedClientId,
@@ -1187,7 +1230,7 @@ function AppContent() {
                 ...pool,
                 diaVencimento: clientData.diaVencimento,
                 fotoReferenciaPath: pool.fotoReferenciaPath,
-                fotoReferenciaUrl: clientData.referencePhotoUri,
+                fotoReferenciaUrl: getPersistedPhotoUri(clientData.referencePhotoUri),
                 litros: clientData.liters,
                 nome: clientData.poolName?.trim() || "Piscina principal",
                 observacoes: clientData.poolNotes ?? "",
@@ -1309,6 +1352,7 @@ function AppContent() {
       id: visitId,
       neighborhood: client.neighborhood,
       piscinaId: client.piscinaId,
+      poolName: client.poolName,
       assignedEmployeeId: defaultEmployee?.id,
       assignedEmployeeName: defaultEmployee?.name,
       funcionarioId: defaultEmployee?.id,
@@ -1332,6 +1376,13 @@ function AppContent() {
         await visitasRepository.update(agendaItemId, {
           funcionarioId: employee.id,
         });
+        const agendaItem = agendaItems.find((item) => item.id === agendaItemId);
+
+        if (agendaItem?.piscinaId) {
+          await piscinasRepository.update(agendaItem.piscinaId, {
+            funcionarioId: employee.id,
+          });
+        }
       } catch (error) {
         setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel atribuir a visita no Firestore."));
         return;
@@ -1380,6 +1431,9 @@ function AppContent() {
               funcionarioId: employee.id,
               origem: "manual",
             });
+            await piscinasRepository.update(client.piscinaId, {
+              funcionarioId: employee.id,
+            });
             firestoreAssignedIds.set(client.id, existingItem.id);
           } else {
             const visitId = await visitasRepository.create({
@@ -1390,6 +1444,9 @@ function AppContent() {
               origem: "manual",
               piscinaId: client.piscinaId,
               status: "pendente",
+            });
+            await piscinasRepository.update(client.piscinaId, {
+              funcionarioId: employee.id,
             });
             firestoreAssignedIds.set(client.id, visitId);
           }
@@ -1437,6 +1494,7 @@ function AppContent() {
           id: firestoreAssignedIds.get(client.id) ?? (existingIndex >= 0 ? nextItems[existingIndex].id : `${Date.now()}-${client.id}`),
           neighborhood: client.neighborhood,
           piscinaId: client.piscinaId,
+          poolName: client.poolName,
           assignedEmployeeId: employee.id,
           assignedEmployeeName: employee.name,
           funcionarioId: employee.id,
@@ -1457,6 +1515,74 @@ function AppContent() {
 
       return nextItems;
     });
+  }
+
+  async function handleGenerateSmartAgenda() {
+    if (!canAccessAdmin) {
+      setRestrictedAccessMessage("Acesso restrito ao perfil dono.");
+      return;
+    }
+
+    setSmartAgendaLoading(true);
+    setAgendaError("");
+    setRestrictedAccessMessage("");
+
+    try {
+      if (isTestMode || !authenticatedUserProfile) {
+        const generatedAgenda = generateLocalSmartAgendaItems(pools, agendaItems, clients, employees);
+        setAgendaItems(generatedAgenda.items);
+        setRestrictedAccessMessage(formatSmartAgendaResultMessage(generatedAgenda));
+        return;
+      }
+
+      const [firestorePools, firestoreVisits] = await Promise.all([
+        piscinasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
+        visitasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
+      ]);
+      const result = await createSmartFirestoreVisits(
+        authenticatedUserProfile.empresaId,
+        firestorePools,
+        firestoreVisits,
+      );
+
+      await loadFirestoreClients(authenticatedUserProfile.empresaId);
+      await loadFirestoreAgenda(authenticatedUserProfile);
+      setRestrictedAccessMessage(formatSmartAgendaResultMessage(result));
+    } catch (error) {
+      const message = getFirestoreFriendlyError(error, "Nao foi possivel gerar a agenda inteligente.");
+      setAgendaError(message);
+      setRestrictedAccessMessage(message);
+    } finally {
+      setSmartAgendaLoading(false);
+    }
+  }
+
+  async function refreshFutureSmartAgendaForPool(empresaId: string, pool: Piscina) {
+    const allVisits = await visitasRepository.listByEmpresa(empresaId);
+    const today = startOfDate(new Date());
+    const deletableVisits = allVisits.filter((visit) => {
+      const visitDate = parseDateLabel(visit.data);
+
+      return (
+        visit.piscinaId === pool.id &&
+        visit.status === "pendente" &&
+        visit.origem === "agenda-inteligente" &&
+        Boolean(visitDate) &&
+        visitDate! >= today
+      );
+    });
+    const deletedIds = new Set(deletableVisits.map((visit) => visit.id));
+
+    await Promise.all(deletableVisits.map((visit) => visitasRepository.delete(visit.id)));
+    await createSmartFirestoreVisits(
+      empresaId,
+      [pool],
+      allVisits.filter((visit) => !deletedIds.has(visit.id)),
+    );
+
+    if (authenticatedUserProfile) {
+      await loadFirestoreAgenda(authenticatedUserProfile);
+    }
   }
 
   async function handleStartAgendaAttendance(agendaItem: AgendaItem) {
@@ -1583,11 +1709,13 @@ function AppContent() {
           canAccessClients={canAccessClients}
           canAccessFinance={canAccessFinance}
           canAccessAdmin={canAccessAdmin}
+          canGenerateSmartAgenda={canAccessAdmin}
           canViewCommercialData={canViewCommercialData}
           clients={clients}
           completionSummary={completionSummary}
           dashboardMetrics={visibleDashboardMetrics}
           employeeSummaries={activeRole === "owner" ? employeeSummaries : []}
+          generatingSmartAgenda={smartAgendaLoading}
           canManageTeam={canAccessAdmin}
           noticeMessage={restrictedAccessMessage}
           onOpenClients={() => openScreenWithPermission("clients", canAccessClients)}
@@ -1600,6 +1728,7 @@ function AppContent() {
           onOpenClientArea={() => setCurrentScreen("client-area")}
           onOpenTeam={() => openScreenWithPermission("admin", canAccessAdmin)}
           onOpenAdmin={() => openScreenWithPermission("admin", canAccessAdmin)}
+          onGenerateSmartAgenda={handleGenerateSmartAgenda}
           onStartAttendance={handleStartAgendaAttendance}
           onSwitchProfile={handleSwitchProfile}
           onLogout={handleSwitchProfile}
@@ -1798,7 +1927,491 @@ function getInitialScreenForPerfil(perfil: UsuarioPerfil): AppScreen {
   return perfil === "cliente" ? "client-area" : "home";
 }
 
+type SmartAgendaIgnoredPool = {
+  poolName: string;
+  reasons: string[];
+};
+
+type SmartAgendaGenerationResult = {
+  activePools: number;
+  createdCount: number;
+  ignoredPools: SmartAgendaIgnoredPool[];
+  totalPools: number;
+};
+
+async function createSmartFirestoreVisits(empresaId: string, currentPools: Piscina[], existingVisits: Visita[]) {
+  const existingKeys = new Set(existingVisits.map((visit) => getVisitDedupKey(visit.empresaId, visit.piscinaId, visit.data)));
+  const result: SmartAgendaGenerationResult = {
+    activePools: 0,
+    createdCount: 0,
+    ignoredPools: [],
+    totalPools: currentPools.length,
+  };
+
+  for (const pool of currentPools) {
+    const analysis = analyzePoolForSmartAgenda(pool);
+
+    if (!analysis.active) {
+      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+      continue;
+    }
+
+    result.activePools += 1;
+
+    if (analysis.reasons.length > 0) {
+      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+      continue;
+    }
+
+    const funcionarioId = getPoolResponsibleId(analysis.pool, existingVisits);
+
+    for (const data of analysis.dates) {
+      const dedupKey = getVisitDedupKey(empresaId, analysis.pool.id, data);
+
+      if (existingKeys.has(dedupKey)) {
+        continue;
+      }
+
+      await visitasRepository.create({
+        clienteId: analysis.pool.clienteId,
+        data,
+        empresaId,
+        funcionarioId: funcionarioId ?? null,
+        origem: "agenda-inteligente",
+        piscinaId: analysis.pool.id,
+        responsavelNome: funcionarioId ? null : "Sem responsavel",
+        status: "pendente",
+      });
+      existingKeys.add(dedupKey);
+      result.createdCount += 1;
+    }
+  }
+
+  return result;
+}
+
+function generateLocalSmartAgendaItems(
+  currentPools: Piscina[],
+  currentAgendaItems: AgendaItem[],
+  currentClients: Client[],
+  currentEmployees: Employee[],
+) {
+  const existingKeys = new Set(
+    currentAgendaItems
+      .filter((item) => item.piscinaId)
+      .map((item) => getVisitDedupKey("test-mode", item.piscinaId!, item.data ?? item.visitDate ?? "")),
+  );
+  const nextItems = [...currentAgendaItems];
+  const result: SmartAgendaGenerationResult = {
+    activePools: 0,
+    createdCount: 0,
+    ignoredPools: [],
+    totalPools: currentPools.length,
+  };
+
+  currentPools.forEach((pool) => {
+    const analysis = analyzePoolForSmartAgenda(pool);
+
+    if (!analysis.active) {
+      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+      return;
+    }
+
+    result.activePools += 1;
+
+    if (analysis.reasons.length > 0) {
+      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+      return;
+    }
+
+    const client = currentClients.find((currentClient) => currentClient.id === analysis.pool.clienteId);
+
+      if (!client) {
+      result.ignoredPools.push({ poolName: analysis.poolName, reasons: ["Cliente vinculado nao encontrado no app."] });
+        return;
+      }
+
+      const funcionarioId = getPoolResponsibleId(
+      analysis.pool,
+        currentAgendaItems.map((item) => ({
+          clienteId: item.clientId ?? client.id,
+          data: item.data ?? item.visitDate ?? "",
+        empresaId: analysis.pool.empresaId,
+          funcionarioId: item.funcionarioId,
+          id: item.id,
+          origem: item.origem === "Manual" ? "manual" : item.origem === "Agenda Inteligente" ? "agenda-inteligente" : "agenda",
+        piscinaId: item.piscinaId ?? analysis.pool.id,
+          status: mapAgendaStatusToVisitaStatus(item.status),
+        })),
+      );
+      const employee = currentEmployees.find((currentEmployee) => currentEmployee.id === funcionarioId);
+
+    analysis.dates.forEach((data) => {
+      const dedupKey = getVisitDedupKey("test-mode", analysis.pool.id, data);
+
+        if (existingKeys.has(dedupKey)) {
+          return;
+        }
+
+        nextItems.push({
+          address: client.address,
+          assignedEmployeeId: employee?.id,
+          assignedEmployeeName: employee?.name,
+          clientId: client.id,
+          clientName: client.name,
+          data,
+          funcionarioId: employee?.id,
+        id: `smart-${analysis.pool.id}-${data}`,
+          neighborhood: client.neighborhood,
+          origem: "Agenda Inteligente",
+        piscinaId: analysis.pool.id,
+        poolName: analysis.pool.nome,
+          status: "pending",
+          visitDate: data,
+        });
+        existingKeys.add(dedupKey);
+      result.createdCount += 1;
+      });
+    });
+
+  return { ...result, items: nextItems };
+}
+
+function generateSmartVisitDates(pool: Piscina, startDate = new Date(), daysAhead = 30) {
+  const normalizedPool = normalizePoolForSmartAgenda(pool);
+  const start = startOfDate(startDate);
+  const end = addDaysToDate(start, daysAhead - 1);
+  const dates: Date[] = [];
+
+  if (normalizedPool.planoAtendimento === "todo_dia") {
+    for (let index = 0; index < daysAhead; index += 1) {
+      dates.push(addDaysToDate(start, index));
+    }
+  }
+
+  if (normalizedPool.planoAtendimento === "semanal") {
+    dates.push(...generateWeeklyDates(start, end, normalizedPool.diasAtendimento ?? [], 7));
+  }
+
+  if (normalizedPool.planoAtendimento === "quinzenal") {
+    dates.push(...generateWeeklyDates(start, end, normalizedPool.diasAtendimento ?? [], 14));
+  }
+
+  if (normalizedPool.planoAtendimento === "mensal") {
+    dates.push(...generateMonthlyDates(start, end, normalizedPool.diaMensal ?? normalizedPool.diaMesAtendimento));
+  }
+
+  if (normalizedPool.planoAtendimento === "avulso") {
+    const avulsoDate = parseDateLabel(normalizedPool.dataAvulsa ?? normalizedPool.dataAtendimentoAvulso);
+
+    if (avulsoDate && avulsoDate >= start && avulsoDate <= end) {
+      dates.push(avulsoDate);
+    }
+  }
+
+  return Array.from(new Set(dates.map(formatDateLabel))).sort(sortDateLabels);
+}
+
+function analyzePoolForSmartAgenda(pool: Piscina) {
+  const normalizedPool = normalizePoolForSmartAgenda(pool);
+  const active = isSmartAgendaPoolActive(pool);
+  const reasons: string[] = [];
+
+  if (!active) {
+    reasons.push(`Status "${safeText((pool as unknown as { status?: unknown }).status, "nao informado")}" nao esta ativo.`);
+  }
+
+  if (!normalizedPool.id) {
+    reasons.push("Piscina sem piscinaId.");
+  }
+
+  if (!normalizedPool.empresaId) {
+    reasons.push("Piscina sem empresaId.");
+  }
+
+  if (!normalizedPool.clienteId) {
+    reasons.push("Piscina sem clienteId.");
+  }
+
+  if (!normalizedPool.planoAtendimento) {
+    reasons.push("Plano de atendimento nao informado ou nao reconhecido.");
+  }
+
+  const dates = reasons.length === 0 ? generateSmartVisitDates(normalizedPool) : [];
+
+  if (reasons.length === 0 && dates.length === 0) {
+    reasons.push(getNoDatesReason(normalizedPool));
+  }
+
+  return {
+    active,
+    dates,
+    pool: normalizedPool,
+    poolName: getSmartAgendaPoolName(normalizedPool),
+    reasons,
+  };
+}
+
+function normalizePoolForSmartAgenda(pool: Piscina): Piscina {
+  const rawPool = pool as unknown as Record<string, unknown>;
+
+  return {
+    ...pool,
+    clienteId: safeText(rawPool.clienteId),
+    dataAtendimentoAvulso: safeOptionalText(rawPool.dataAtendimentoAvulso),
+    dataAvulsa: safeOptionalText(rawPool.dataAvulsa),
+    diaMensal: normalizeDayOfMonth(rawPool.diaMensal ?? rawPool.diaMesAtendimento),
+    diaMesAtendimento: normalizeDayOfMonth(rawPool.diaMesAtendimento ?? rawPool.diaMensal),
+    diasAtendimento: normalizeWeekDays(rawPool.diasAtendimento),
+    empresaId: safeText(rawPool.empresaId),
+    funcionarioId: safeOptionalText(rawPool.funcionarioId) ?? null,
+    id: safeText(rawPool.id),
+    nome: safeText(rawPool.nome, "Piscina principal"),
+    planoAtendimento: normalizePlanoAtendimento(rawPool.planoAtendimento),
+    status: isSmartAgendaPoolActive(pool) ? "ativa" : "inativa",
+  };
+}
+
+function normalizePlanoAtendimento(value: unknown): Piscina["planoAtendimento"] {
+  const normalizedValue = normalizeTextToken(value);
+
+  const aliases: Record<string, Piscina["planoAtendimento"]> = {
+    avulso: "avulso",
+    biweekly: "quinzenal",
+    daily: "todo_dia",
+    mensal: "mensal",
+    monthly: "mensal",
+    onetime: "avulso",
+    one_time: "avulso",
+    quinzenal: "quinzenal",
+    semanal: "semanal",
+    semana: "semanal",
+    semanalmente: "semanal",
+    todo_dia: "todo_dia",
+    tododia: "todo_dia",
+    todos_os_dias: "todo_dia",
+    todososdias: "todo_dia",
+    weekly: "semanal",
+  };
+
+  return aliases[normalizedValue];
+}
+
+function normalizeWeekDays(value: unknown): WeekDay[] {
+  const rawItems = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,/;|]+|\s+\+\s+|\s+e\s+/i)
+      : [];
+  const weekDays = rawItems
+    .map((item) => normalizeWeekDay(item))
+    .filter((item): item is WeekDay => Boolean(item));
+
+  return Array.from(new Set(weekDays));
+}
+
+function normalizeWeekDay(value: unknown): WeekDay | null {
+  const normalizedValue = normalizeTextToken(value);
+  const aliases: Record<string, WeekDay> = {
+    dom: "sunday",
+    domingo: "sunday",
+    friday: "friday",
+    fri: "friday",
+    monday: "monday",
+    mon: "monday",
+    quarta: "wednesday",
+    quartafeira: "wednesday",
+    quinta: "thursday",
+    quintafeira: "thursday",
+    sab: "saturday",
+    sabado: "saturday",
+    saturday: "saturday",
+    sat: "saturday",
+    segunda: "monday",
+    segundafeira: "monday",
+    sexta: "friday",
+    sextafeira: "friday",
+    sunday: "sunday",
+    quinta_feira: "thursday",
+    quarta_feira: "wednesday",
+    segunda_feira: "monday",
+    sexta_feira: "friday",
+    terca: "tuesday",
+    tercafeira: "tuesday",
+    terca_feira: "tuesday",
+    thursday: "thursday",
+    thu: "thursday",
+    tuesday: "tuesday",
+    tue: "tuesday",
+    wednesday: "wednesday",
+    wed: "wednesday",
+  };
+
+  return aliases[normalizedValue] ?? null;
+}
+
+function normalizeDayOfMonth(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  return Number.isInteger(numberValue) && numberValue >= 1 && numberValue <= 31 ? numberValue : undefined;
+}
+
+function isSmartAgendaPoolActive(pool: Piscina) {
+  const rawStatus = normalizeTextToken((pool as unknown as { status?: unknown }).status);
+
+  if (!rawStatus) {
+    return true;
+  }
+
+  return rawStatus === "ativa" || rawStatus === "ativo";
+}
+
+function getNoDatesReason(pool: Piscina) {
+  if (pool.planoAtendimento === "semanal" || pool.planoAtendimento === "quinzenal") {
+    return "Plano semanal/quinzenal sem diasAtendimento validos.";
+  }
+
+  if (pool.planoAtendimento === "mensal") {
+    return "Plano mensal sem diaMensal valido nos proximos 30 dias.";
+  }
+
+  if (pool.planoAtendimento === "avulso") {
+    return "Plano avulso sem dataAvulsa valida nos proximos 30 dias.";
+  }
+
+  return "Nenhuma data encontrada nos proximos 30 dias.";
+}
+
+function getSmartAgendaPoolName(pool: Piscina) {
+  return safeText(pool.nome, pool.id ? `Piscina ${pool.id}` : "Piscina sem identificacao");
+}
+
+function normalizeTextToken(value: unknown) {
+  return safeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function formatSmartAgendaResultMessage(result: SmartAgendaGenerationResult) {
+  const baseMessage = `Agenda gerada: ${result.createdCount} visita(s) criada(s), ${result.ignoredPools.length} piscina(s) ignorada(s). Encontradas: ${result.totalPools}, ativas: ${result.activePools}.`;
+
+  if (result.ignoredPools.length === 0) {
+    return baseMessage;
+  }
+
+  const ignoredDetails = result.ignoredPools
+    .slice(0, 5)
+    .map((pool) => `${pool.poolName}: ${pool.reasons.join("; ")}`)
+    .join(" | ");
+
+  const remainingCount = result.ignoredPools.length > 5 ? ` | +${result.ignoredPools.length - 5} piscina(s) ignorada(s).` : "";
+
+  return `${baseMessage} Motivos: ${ignoredDetails}${remainingCount}`;
+}
+
+function generateWeeklyDates(start: Date, end: Date, weekDays: WeekDay[], intervalDays: 7 | 14) {
+  return weekDays.flatMap((weekDay) => {
+    const dates: Date[] = [];
+    let currentDate = getNextDateForWeekDay(start, weekDay);
+
+    while (currentDate <= end) {
+      dates.push(currentDate);
+      currentDate = addDaysToDate(currentDate, intervalDays);
+    }
+
+    return dates;
+  });
+}
+
+function generateMonthlyDates(start: Date, end: Date, dayOfMonth?: number) {
+  if (!dayOfMonth || dayOfMonth < 1 || dayOfMonth > 31) {
+    return [];
+  }
+
+  const dates: Date[] = [];
+  const monthCursor = new Date(start.getFullYear(), start.getMonth(), 1);
+
+  for (let index = 0; index < 2; index += 1) {
+    const candidate: Date = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + index, dayOfMonth);
+
+    if (candidate.getDate() === dayOfMonth && candidate >= start && candidate <= end) {
+      dates.push(startOfDate(candidate));
+    }
+  }
+
+  return dates;
+}
+
+function getNextDateForWeekDay(start: Date, weekDay: WeekDay) {
+  const targetDay = weekDayIndexes[weekDay];
+  const distance = (targetDay - start.getDay() + 7) % 7;
+  return addDaysToDate(start, distance);
+}
+
+function getPoolResponsibleId(pool: Piscina, existingVisits: Visita[]) {
+  if (pool.funcionarioId) {
+    return pool.funcionarioId;
+  }
+
+  return existingVisits
+    .filter((visit) => visit.piscinaId === pool.id && Boolean(visit.funcionarioId))
+    .sort((left, right) => sortDateLabels(right.data, left.data))[0]?.funcionarioId;
+}
+
+function getVisitDedupKey(empresaId: string, piscinaId: string, data: string) {
+  return `${empresaId}__${piscinaId}__${data}`;
+}
+
+function formatDateLabel(date: Date) {
+  return date.toLocaleDateString("pt-BR");
+}
+
+function parseDateLabel(value?: string) {
+  if (!value || value === "Hoje") {
+    return value === "Hoje" ? startOfDate(new Date()) : null;
+  }
+
+  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+  if (brDate) {
+    return startOfDate(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : startOfDate(parsed);
+}
+
+function sortDateLabels(left: string, right: string) {
+  const leftDate = parseDateLabel(left)?.getTime() ?? 0;
+  const rightDate = parseDateLabel(right)?.getTime() ?? 0;
+  return leftDate - rightDate;
+}
+
+function startOfDate(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDaysToDate(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return startOfDate(nextDate);
+}
+
+const weekDayIndexes: Record<WeekDay, number> = {
+  friday: 5,
+  monday: 1,
+  saturday: 6,
+  sunday: 0,
+  thursday: 4,
+  tuesday: 2,
+  wednesday: 3,
+};
+
 function mapFirestoreClientToAppClient(cliente: Cliente, piscina?: Piscina): Client {
+  const referencePhotoUri = getPersistedPhotoUri(piscina?.fotoReferenciaUrl);
+
   return {
     address: cliente.endereco ?? "",
     city: cliente.cidade ?? "",
@@ -1819,13 +2432,15 @@ function mapFirestoreClientToAppClient(cliente: Cliente, piscina?: Piscina): Cli
     diaMesAtendimento: piscina?.diaMensal ?? piscina?.diaMesAtendimento,
     diasAtendimento: piscina?.diasAtendimento ?? [],
     poolType: piscina?.tipo ?? "",
-    referencePhotoUri: piscina?.fotoReferenciaUrl,
+    referencePhotoUri,
     valorMensal: piscina?.valorMensal ?? 0,
     weekDays: [],
   };
 }
 
 function mapFirestoreClientToOperationalClient(cliente: Cliente, piscina?: Piscina): Client {
+  const referencePhotoUri = getPersistedPhotoUri(piscina?.fotoReferenciaUrl);
+
   return {
     address: cliente.endereco ?? "",
     city: cliente.cidade ?? "",
@@ -1846,7 +2461,7 @@ function mapFirestoreClientToOperationalClient(cliente: Cliente, piscina?: Pisci
     diaMesAtendimento: undefined,
     diasAtendimento: piscina?.diasAtendimento ?? [],
     poolType: piscina?.tipo ?? "",
-    referencePhotoUri: piscina?.fotoReferenciaUrl,
+    referencePhotoUri,
     valorMensal: 0,
     weekDays: [],
   };
@@ -1872,24 +2487,83 @@ function haveSameOperationalClients(currentClients: Client[], nextClients: Clien
   });
 }
 
-function mapFirestoreVisitToAgendaItem(visit: Visita, currentClients: Client[], currentEmployees: Employee[]): AgendaItem {
+function getPersistedPhotoUri(uri?: string | null) {
+  if (typeof uri !== "string") {
+    return undefined;
+  }
+
+  const trimmedUri = uri.trim();
+
+  if (!trimmedUri || isTemporaryLocalUri(trimmedUri)) {
+    return undefined;
+  }
+
+  return trimmedUri;
+}
+
+function sanitizePoolReferencePhoto(pool: Piscina): Piscina {
+  return {
+    ...pool,
+    fotoReferenciaUrl: getPersistedPhotoUri(pool.fotoReferenciaUrl),
+  };
+}
+
+function isTemporaryLocalUri(uri: string) {
+  return (
+    uri.startsWith("blob:") ||
+    uri.startsWith("file:") ||
+    uri.startsWith("data:") ||
+    uri.startsWith("content:") ||
+    uri.startsWith("asset:")
+  );
+}
+
+function safeText(value: unknown, fallback = "") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function safeOptionalText(value: unknown) {
+  const text = safeText(value);
+  return text || undefined;
+}
+
+function mapFirestoreVisitToAgendaItem(
+  visit: Visita,
+  currentClients: Client[],
+  currentEmployees: Employee[],
+  currentPools: Piscina[],
+): AgendaItem {
   const client = currentClients.find((currentClient) => currentClient.id === visit.clienteId);
   const employee = currentEmployees.find((currentEmployee) => currentEmployee.id === visit.funcionarioId);
+  const pool = currentPools.find((currentPool) => currentPool.id === visit.piscinaId);
 
   return {
-    address: client?.address ?? "Endereco nao informado",
-    assignedEmployeeId: visit.funcionarioId,
-    assignedEmployeeName: employee?.name,
+    address: safeText(client?.address, "Endereco nao informado"),
+    assignedEmployeeId: visit.funcionarioId ?? undefined,
+    assignedEmployeeName: safeOptionalText(employee?.name ?? visit.responsavelNome),
     clientId: visit.clienteId,
-    clientName: client?.name ?? "Cliente nao encontrado",
-    data: visit.data,
-    funcionarioId: visit.funcionarioId,
+    clientName: safeText(client?.name, "Cliente nao encontrado"),
+    data: safeText(visit.data),
+    funcionarioId: visit.funcionarioId ?? undefined,
     id: visit.id,
-    neighborhood: client?.neighborhood ?? "Bairro nao informado",
+    neighborhood: safeText(client?.neighborhood, "Bairro nao informado"),
     origem: mapVisitaOrigemToAgendaOrigem(visit.origem),
     piscinaId: visit.piscinaId,
+    poolName: safeOptionalText(pool?.nome ?? client?.poolName),
     status: mapVisitaStatusToAgendaStatus(visit.status),
-    visitDate: visit.data,
+    visitDate: safeText(visit.data),
   };
 }
 
@@ -1921,11 +2595,19 @@ function mapVisitaStatusToAgendaStatus(status: VisitaStatus): AgendaStatus {
     pendente: "pending",
   };
 
-  return statuses[status];
+  return statuses[status] ?? "pending";
 }
 
 function mapVisitaOrigemToAgendaOrigem(origem: VisitaOrigem): NonNullable<AgendaItem["origem"]> {
-  return origem === "manual" ? "Manual" : "Automatica";
+  if (origem === "manual") {
+    return "Manual";
+  }
+
+  if (origem === "agenda-inteligente") {
+    return "Agenda Inteligente";
+  }
+
+  return "Automatica";
 }
 
 function mapClientPlanToPlanoAtendimento(plan: ClientPlan): PlanoAtendimento {

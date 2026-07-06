@@ -39,6 +39,7 @@ type HomeScreenProps = {
   canAccessAdmin: boolean;
   canAccessClients: boolean;
   canManageTeam: boolean;
+  canGenerateSmartAgenda?: boolean;
   canAccessFinance: boolean;
   canViewCommercialData: boolean;
   clients: Client[];
@@ -46,6 +47,7 @@ type HomeScreenProps = {
   dashboardMetrics: DashboardMetric[];
   employeeSummaries: EmployeeSummary[];
   noticeMessage?: string;
+  generatingSmartAgenda?: boolean;
   onOpenClients: () => void;
   onOpenProducts: () => void;
   onOpenAttendance: () => void;
@@ -56,6 +58,7 @@ type HomeScreenProps = {
   onOpenFirebaseDiagnostics: () => void;
   onOpenClientArea: () => void;
   onOpenTeam: () => void;
+  onGenerateSmartAgenda?: () => void;
   onStartAttendance: (agendaItem: AgendaItem) => void;
   onSwitchProfile: () => void;
   onLogout: () => void;
@@ -67,6 +70,7 @@ export function HomeScreen({
   canAccessAdmin,
   canAccessClients,
   canManageTeam,
+  canGenerateSmartAgenda = false,
   canAccessFinance,
   canViewCommercialData,
   clients,
@@ -74,6 +78,7 @@ export function HomeScreen({
   dashboardMetrics,
   employeeSummaries,
   noticeMessage,
+  generatingSmartAgenda = false,
   onOpenClients,
   onOpenProducts,
   onOpenAttendance,
@@ -84,6 +89,7 @@ export function HomeScreen({
   onOpenFirebaseDiagnostics,
   onOpenClientArea,
   onOpenTeam,
+  onGenerateSmartAgenda,
   onStartAttendance,
   onSwitchProfile,
   onLogout,
@@ -133,27 +139,27 @@ export function HomeScreen({
                 <View style={styles.nextPoolTitleBlock}>
                   <Text style={styles.nextPoolEyebrow}>Proxima piscina</Text>
                   <Text selectable style={styles.nextPoolName}>
-                    {nextAgendaItem.clientName}
+                    {safeText(nextAgendaItem.clientName, "Cliente nao encontrado")}
                   </Text>
                 </View>
                 <StatusBadge
-                  label={agendaStatusLabels[nextAgendaItem.status]}
+                  label={getAgendaStatusLabel(nextAgendaItem.status)}
                   tone={nextAgendaItem.status === "pending" ? "pending" : "info"}
                 />
               </View>
 
               <View style={styles.nextPoolDetails}>
                 <Text selectable style={styles.nextPoolDetail}>
-                  Bairro: {nextAgendaClient?.neighborhood || nextAgendaItem.neighborhood}
+                  Bairro: {safeText(nextAgendaClient?.neighborhood || nextAgendaItem.neighborhood, "Bairro nao informado")}
                 </Text>
                 {nextAgendaClient?.address || nextAgendaItem.address ? (
                   <Text selectable style={styles.nextPoolDetail}>
-                    Endereco: {nextAgendaClient?.address || nextAgendaItem.address}
+                    Endereco: {safeText(nextAgendaClient?.address || nextAgendaItem.address, "Endereco nao informado")}
                   </Text>
                 ) : null}
                 {nextAgendaClient?.poolType ? (
                   <Text selectable style={styles.nextPoolDetail}>
-                    Tipo da piscina: {nextAgendaClient.poolType}
+                    Tipo da piscina: {safeText(nextAgendaClient.poolType)}
                   </Text>
                 ) : null}
                 {canViewCommercialData && nextAgendaClient?.plan ? (
@@ -162,7 +168,7 @@ export function HomeScreen({
                   </Text>
                 ) : null}
                 <Text selectable style={styles.nextPoolDetail}>
-                  Data da visita: {nextAgendaItem.visitDate ?? "Hoje"}
+                  Data da visita: {safeText(nextAgendaItem.visitDate, "Hoje")}
                 </Text>
               </View>
 
@@ -211,7 +217,7 @@ export function HomeScreen({
               {employeeSummaries.map((summary) => (
                 <AppCard key={summary.employeeName} style={styles.employeeCard}>
                   <Text selectable style={styles.employeeName}>
-                    {summary.employeeName}
+                    {safeText(summary.employeeName, "Funcionario")}
                   </Text>
                   <View style={styles.employeeMetricRow}>
                     <SummaryItem label="Atribuidas" value={summary.assigned} />
@@ -237,28 +243,26 @@ export function HomeScreen({
               return (
                 <AppCard key={item.id} style={styles.agendaCard}>
                   <View style={styles.agendaHeader}>
-                    {agendaClient?.referencePhotoUri ? (
-                      <PoolReferencePhoto uri={agendaClient.referencePhotoUri} />
-                    ) : null}
+                    <PoolReferencePhoto uri={agendaClient?.referencePhotoUri} />
                     <View style={styles.agendaText}>
                       <Text selectable style={styles.agendaClient}>
-                        {item.clientName}
+                        {safeText(item.clientName, "Cliente nao encontrado")}
                       </Text>
                       <Text selectable style={styles.agendaDetail}>
-                        {item.neighborhood} - {item.address}
+                        {safeText(item.neighborhood, "Bairro nao informado")} - {safeText(item.address, "Endereco nao informado")}
                       </Text>
                       {canViewCommercialData && agendaClient?.plan ? (
                         <Text selectable style={styles.agendaDetail}>
-                          Plano: {clientPlanLabels[agendaClient.plan]} - Data: {item.visitDate ?? "Hoje"}
+                          Plano: {clientPlanLabels[agendaClient.plan]} - Data: {safeText(item.visitDate, "Hoje")}
                         </Text>
                       ) : (
                         <Text selectable style={styles.agendaDetail}>
-                          Data: {item.visitDate ?? "Hoje"}
+                          Data: {safeText(item.visitDate, "Hoje")}
                         </Text>
                       )}
                     </View>
                     <StatusBadge
-                      label={agendaStatusLabels[item.status]}
+                      label={getAgendaStatusLabel(item.status)}
                       tone={item.status === "finished" ? "completed" : item.status === "pending" ? "pending" : "info"}
                     />
                   </View>
@@ -288,6 +292,16 @@ export function HomeScreen({
               title="Atendimento"
             />
             <PrimaryButton icon=">" onPress={onOpenAgenda} style={styles.headerButton} title="Agenda" />
+            {canGenerateSmartAgenda && onGenerateSmartAgenda ? (
+              <PrimaryButton
+                icon="+"
+                loading={generatingSmartAgenda}
+                onPress={onGenerateSmartAgenda}
+                style={styles.smartAgendaButton}
+                title="Gerar agenda"
+                variant="warning"
+              />
+            ) : null}
             <PrimaryButton
               icon=">"
               onPress={onOpenHistory}
@@ -350,6 +364,26 @@ function SummaryItem({ label, value }: { label: string; value: number }) {
       <Text style={styles.completionLabel}>{label}</Text>
     </View>
   );
+}
+
+function safeText(value: unknown, fallback = "") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function getAgendaStatusLabel(status: AgendaItem["status"]) {
+  return agendaStatusLabels[status] ?? "Pendente";
 }
 
 const styles = StyleSheet.create({
@@ -598,6 +632,12 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins",
     fontSize: 22,
     fontWeight: "900",
+  },
+  smartAgendaButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 168,
   },
   subtitle: {
     color: colors.textSecondary,

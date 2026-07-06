@@ -6,6 +6,12 @@ import { mapFirestoreDocs } from "./firestore-mapper";
 
 const collectionName = "visitas";
 
+function limparUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
 export const visitasRepository = {
   async listByEmpresa(empresaId: string): Promise<Visita[]> {
     const snapshot = await getDocs(
@@ -57,7 +63,7 @@ export const visitasRepository = {
 
   async create(data: Omit<Visita, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
-      ...data,
+      ...limparUndefined(data as unknown as Record<string, unknown>),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -66,7 +72,7 @@ export const visitasRepository = {
 
   async update(id: string, data: Partial<Omit<Visita, "id" | "createdAt" | "criadoEm">>): Promise<void> {
     await updateDoc(doc(getFirebaseFirestore(), collectionName, id), {
-      ...data,
+      ...limparUndefined(data as unknown as Record<string, unknown>),
       updatedAt: serverTimestamp(),
     });
   },

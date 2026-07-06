@@ -16,6 +16,7 @@ export type Piscina = {
   observacoes?: string;
   fotoReferenciaUrl?: string;
   fotoReferenciaPath?: string;
+  funcionarioId?: string | null;
   planoAtendimento?: PlanoAtendimento;
   valorMensal?: number;
   diaVencimento?: number;

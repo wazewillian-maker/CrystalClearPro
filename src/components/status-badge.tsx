@@ -18,9 +18,12 @@ type StatusBadgeProps = {
 };
 
 export function StatusBadge({ label, tone = "info" }: StatusBadgeProps) {
+  const safeLabel = typeof label === "string" ? label : String(label ?? "");
+  const safeTone = toneStyles[tone] ? tone : "info";
+
   return (
-    <View style={[styles.badge, toneStyles[tone]]}>
-      <Text style={styles.text}>{label}</Text>
+    <View style={[styles.badge, toneStyles[safeTone]]}>
+      <Text style={styles.text}>{safeLabel}</Text>
     </View>
   );
 }

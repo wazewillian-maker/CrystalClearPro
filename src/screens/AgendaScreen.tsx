@@ -54,6 +54,7 @@ export function AgendaScreen({
   const [saving, setSaving] = useState(false);
   const pendingCount = agendaItems.filter((item) => item.status !== "finished").length;
   const selectedClient = clients.find((client) => client.id === selectedClientId);
+  const groupedAgendaItems = groupAgendaItems(agendaItems);
 
   async function handleAddAgendaItem() {
     if (!selectedClient) {
@@ -144,12 +145,12 @@ export function AgendaScreen({
                         <PoolReferencePhoto style={styles.clientOptionPhoto} uri={client.referencePhotoUri} />
                         <View style={styles.clientOptionText}>
                           <Text selectable style={styles.clientOptionName}>
-                            {client.name}
+                            {safeText(client.name, "Cliente nao encontrado")}
                           </Text>
                           <Text selectable style={styles.clientOptionDetail}>
                             {canViewCommercialData
-                              ? `${client.neighborhood} - ${clientPlanLabels[client.plan]}`
-                              : client.neighborhood}
+                              ? `${safeText(client.neighborhood, "Bairro nao informado")} - ${clientPlanLabels[client.plan]}`
+                              : safeText(client.neighborhood, "Bairro nao informado")}
                           </Text>
                         </View>
                       </Pressable>
@@ -179,109 +180,129 @@ export function AgendaScreen({
         ) : null}
 
         <View style={styles.agendaList}>
-          {agendaItems.map((item) => {
-            const agendaClient = clients.find((client) => client.name === item.clientName);
+          {groupedAgendaItems.map((section) => (
+            <View key={section.title} style={styles.agendaSection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{section.title}</Text>
+                <Text style={styles.sectionCount}>{section.items.length}</Text>
+              </View>
 
-            return (
-              <AppCard key={item.id} style={styles.agendaCard}>
-                <View style={styles.itemHeader}>
-                  <PoolReferencePhoto uri={agendaClient?.referencePhotoUri} />
-                  <View style={styles.itemHeaderText}>
-                    <Text selectable style={styles.clientName}>
-                      {item.clientName}
-                    </Text>
-                    <Text selectable style={styles.neighborhood}>
-                      {item.neighborhood}
-                    </Text>
-                    {canViewCommercialData && agendaClient?.plan ? (
-                      <Text selectable style={styles.planText}>
-                        Plano: {clientPlanLabels[agendaClient.plan]}
-                      </Text>
-                    ) : null}
-                  </View>
+              {section.items.length === 0 ? (
+                <AppCard style={styles.emptySectionCard}>
+                  <Text selectable style={styles.summaryText}>
+                    Nenhuma visita nesta seção.
+                  </Text>
+                </AppCard>
+              ) : (
+                section.items.map((item) => {
+                  const agendaClient = clients.find((client) => client.id === item.clientId || client.name === item.clientName);
 
-                  <StatusBadge label={agendaStatusLabels[item.status]} tone={getStatusTone(item.status)} />
-                </View>
-
-                <Text selectable style={styles.address}>
-                  {item.address}
-                </Text>
-                <Text selectable style={styles.visitDate}>
-                  Data da visita: {item.visitDate ?? "Hoje"}
-                </Text>
-                <Text selectable style={styles.responsibleText}>
-                  Responsavel: {item.assignedEmployeeName ?? "Nao atribuido"}
-                </Text>
-
-                <View style={styles.statusGroup}>
-                  <Text style={styles.groupLabel}>Status</Text>
-                  <View style={styles.statusOptions}>
-                    {statusOptions.map((status) => {
-                      const selected = item.status === status;
-
-                      return (
-                        <Pressable
-                          accessibilityLabel={`Alterar status para ${agendaStatusLabels[status]}`}
-                          accessibilityRole="button"
-                          key={status}
-                          onPress={() => onUpdateStatus(item.id, status)}
-                          style={({ pressed }) => [
-                            styles.statusOption,
-                            selected && styles.statusOptionSelected,
-                            pressed && styles.statusOptionPressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.statusOptionText,
-                              selected && styles.statusOptionTextSelected,
-                            ]}
-                          >
-                            {agendaStatusLabels[status]}
+                  return (
+                    <AppCard key={item.id} style={styles.agendaCard}>
+                      <View style={styles.itemHeader}>
+                        <PoolReferencePhoto uri={agendaClient?.referencePhotoUri} />
+                        <View style={styles.itemHeaderText}>
+                          <Text selectable style={styles.clientName}>
+                            {safeText(item.clientName, "Cliente nao encontrado")}
                           </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
+                          <Text selectable style={styles.poolName}>
+                            {safeText(item.poolName, "Piscina principal")}
+                          </Text>
+                          <Text selectable style={styles.neighborhood}>
+                            {safeText(item.neighborhood, "Bairro nao informado")}
+                          </Text>
+                          {canViewCommercialData && agendaClient?.plan ? (
+                            <Text selectable style={styles.planText}>
+                              Plano: {clientPlanLabels[agendaClient.plan]}
+                            </Text>
+                          ) : null}
+                        </View>
 
-                {canDistribute ? (
-                  <View style={styles.distributionGroup}>
-                    <Text style={styles.groupLabel}>Distribuir piscinas</Text>
-                    <View style={styles.employeeOptions}>
-                      {employees.map((employee) => {
-                        const selected = item.assignedEmployeeId === employee.id;
+                        <StatusBadge label={getAgendaStatusLabel(item.status)} tone={getStatusTone(item.status)} />
+                      </View>
 
-                        return (
-                          <Pressable
-                            accessibilityLabel={`Atribuir para ${employee.name}`}
-                            accessibilityRole="button"
-                            key={employee.id}
-                            onPress={() => onAssignAgendaItem(item.id, employee.id)}
-                            style={({ pressed }) => [
-                              styles.employeeOption,
-                              selected && styles.employeeOptionSelected,
-                              pressed && styles.employeeOptionPressed,
-                            ]}
-                          >
-                            <Text style={styles.employeeOptionText}>{employee.name}</Text>
-                            <Text style={styles.employeeRoleText}>{employeeRoleLabels[employee.role]}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null}
+                      <Text selectable style={styles.address}>
+                        {safeText(item.address, "Endereco nao informado")}
+                      </Text>
+                      <Text selectable style={styles.visitDate}>
+                        Data da visita: {safeText(item.visitDate, "Hoje")}
+                      </Text>
+                      <Text selectable style={styles.responsibleText}>
+                        Responsavel: {safeText(item.assignedEmployeeName, "Sem responsavel")}
+                      </Text>
 
-                <PrimaryButton
-                  onPress={() => onStartAttendance(item)}
-                  style={styles.startButton}
-                  title="Iniciar atendimento"
-                  variant={item.status === "finished" ? "primary" : "success"}
-                />
-              </AppCard>
-            );
-          })}
+                      <View style={styles.statusGroup}>
+                        <Text style={styles.groupLabel}>Status</Text>
+                        <View style={styles.statusOptions}>
+                          {statusOptions.map((status) => {
+                            const selected = item.status === status;
+
+                            return (
+                              <Pressable
+                                accessibilityLabel={`Alterar status para ${agendaStatusLabels[status]}`}
+                                accessibilityRole="button"
+                                key={status}
+                                onPress={() => onUpdateStatus(item.id, status)}
+                                style={({ pressed }) => [
+                                  styles.statusOption,
+                                  selected && styles.statusOptionSelected,
+                                  pressed && styles.statusOptionPressed,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.statusOptionText,
+                                    selected && styles.statusOptionTextSelected,
+                                  ]}
+                                >
+                                {getAgendaStatusLabel(status)}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {canDistribute ? (
+                        <View style={styles.distributionGroup}>
+                          <Text style={styles.groupLabel}>Distribuir piscinas</Text>
+                          <View style={styles.employeeOptions}>
+                            {employees.map((employee) => {
+                              const selected = item.assignedEmployeeId === employee.id;
+
+                              return (
+                                <Pressable
+                                  accessibilityLabel={`Atribuir para ${employee.name}`}
+                                  accessibilityRole="button"
+                                  key={employee.id}
+                                  onPress={() => onAssignAgendaItem(item.id, employee.id)}
+                                  style={({ pressed }) => [
+                                    styles.employeeOption,
+                                    selected && styles.employeeOptionSelected,
+                                    pressed && styles.employeeOptionPressed,
+                                  ]}
+                                >
+                                  <Text style={styles.employeeOptionText}>{safeText(employee.name, "Funcionario")}</Text>
+                                  <Text style={styles.employeeRoleText}>{employeeRoleLabels[employee.role] ?? "Funcionario"}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ) : null}
+
+                      <PrimaryButton
+                        onPress={() => onStartAttendance(item)}
+                        style={styles.startButton}
+                        title="Iniciar atendimento"
+                        variant={item.status === "finished" ? "primary" : "success"}
+                      />
+                    </AppCard>
+                  );
+                })
+              )}
+            </View>
+          ))}
         </View>
       </ScrollView>
     </View>
@@ -298,6 +319,97 @@ function getStatusTone(status: AgendaStatus) {
   }
 
   return "pending";
+}
+
+function getAgendaStatusLabel(status: AgendaStatus) {
+  return agendaStatusLabels[status] ?? "Pendente";
+}
+
+function safeText(value: unknown, fallback = "") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function groupAgendaItems(items: AgendaItem[]) {
+  const today = startOfDay(new Date());
+  const tomorrow = addDays(today, 1);
+  const weekEnd = addDays(today, 6);
+  const groups = [
+    { title: "Hoje", items: [] as AgendaItem[] },
+    { title: "Amanhã", items: [] as AgendaItem[] },
+    { title: "Esta semana", items: [] as AgendaItem[] },
+    { title: "Atrasadas", items: [] as AgendaItem[] },
+  ];
+
+  items.forEach((item) => {
+    const visitDate = parseAgendaDate(item.data ?? item.visitDate);
+
+    if (!visitDate) {
+      groups[2].items.push(item);
+      return;
+    }
+
+    if (visitDate < today && item.status !== "finished") {
+      groups[3].items.push(item);
+      return;
+    }
+
+    if (sameDay(visitDate, today)) {
+      groups[0].items.push(item);
+      return;
+    }
+
+    if (sameDay(visitDate, tomorrow)) {
+      groups[1].items.push(item);
+      return;
+    }
+
+    if (visitDate > tomorrow && visitDate <= weekEnd) {
+      groups[2].items.push(item);
+    }
+  });
+
+  return groups;
+}
+
+function parseAgendaDate(value?: string) {
+  if (!value || value === "Hoje") {
+    return value === "Hoje" ? startOfDay(new Date()) : null;
+  }
+
+  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+  if (brDate) {
+    return startOfDay(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return startOfDay(nextDate);
+}
+
+function sameDay(left: Date, right: Date) {
+  return left.getTime() === right.getTime();
 }
 
 const styles = StyleSheet.create({
@@ -317,6 +429,9 @@ const styles = StyleSheet.create({
   },
   agendaList: {
     gap: 12,
+  },
+  agendaSection: {
+    gap: 10,
   },
   clientName: {
     color: colors.white,
@@ -415,6 +530,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  emptySectionCard: {
+    padding: 14,
+  },
   employeeRoleText: {
     color: colors.textSecondary,
     fontSize: 12,
@@ -451,6 +569,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 18,
   },
+  poolName: {
+    color: colors.primaryLight,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   responsibleText: {
     color: colors.primaryLight,
     fontSize: 14,
@@ -460,6 +583,22 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  sectionCount: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  sectionTitle: {
+    color: colors.white,
+    fontFamily: "Poppins",
+    fontSize: 18,
+    fontWeight: "900",
   },
   startButton: {
     height: 50,

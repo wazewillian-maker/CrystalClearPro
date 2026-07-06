@@ -14,10 +14,22 @@ export function PoolReferencePhoto({
   style,
   uri,
 }: PoolReferencePhotoProps) {
+  const [imageFailed, setImageFailed] = React.useState(false);
+  const safeUri = getSafeImageUri(uri);
+
+  React.useEffect(() => {
+    setImageFailed(false);
+  }, [safeUri]);
+
   return (
     <View style={[styles.frame, styles[size], style]}>
-      {uri ? (
-        <Image accessibilityLabel="Foto de referencia da piscina" source={{ uri }} style={styles.image} />
+      {safeUri && !imageFailed ? (
+        <Image
+          accessibilityLabel="Foto de referencia da piscina"
+          onError={() => setImageFailed(true)}
+          source={{ uri: safeUri }}
+          style={styles.image}
+        />
       ) : (
         <View style={styles.placeholder}>
           <Text style={styles.placeholderIcon}>◊</Text>
@@ -25,6 +37,30 @@ export function PoolReferencePhoto({
         </View>
       )}
     </View>
+  );
+}
+
+function getSafeImageUri(uri?: string) {
+  if (typeof uri !== "string") {
+    return "";
+  }
+
+  const trimmedUri = uri.trim();
+
+  if (!trimmedUri || isTemporaryLocalUri(trimmedUri)) {
+    return "";
+  }
+
+  return trimmedUri;
+}
+
+function isTemporaryLocalUri(uri: string) {
+  return (
+    uri.startsWith("blob:") ||
+    uri.startsWith("file:") ||
+    uri.startsWith("data:") ||
+    uri.startsWith("content:") ||
+    uri.startsWith("asset:")
   );
 }
 
