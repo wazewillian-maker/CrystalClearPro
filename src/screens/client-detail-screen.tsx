@@ -7,6 +7,8 @@ import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
 import colors from "../theme/colors";
+import type { AgendaItem } from "../types/agenda";
+import type { AttendanceRecord } from "../types/attendance";
 import {
   clientFrequencyLabels,
   clientPlanLabels,
@@ -23,6 +25,10 @@ type ClientDetailScreenProps = {
   onDeletePool: (poolId: string) => Promise<void> | void;
   onEdit: () => void;
   onEditPool: (poolId: string) => void;
+  agendaItems?: AgendaItem[];
+  attendances?: AttendanceRecord[];
+  canViewFinancialData?: boolean;
+  onOpenClientFinance?: () => void;
   pools?: Piscina[];
 };
 
@@ -34,6 +40,10 @@ export function ClientDetailScreen({
   onDeletePool,
   onEdit,
   onEditPool,
+  agendaItems = [],
+  attendances = [],
+  canViewFinancialData = true,
+  onOpenClientFinance,
   pools = [],
 }: ClientDetailScreenProps) {
   const [confirmDeletePoolId, setConfirmDeletePoolId] = useState<string | null>(null);
@@ -162,6 +172,14 @@ export function ClientDetailScreen({
           </Text>
         ) : null}
 
+        <ClientSummaryCard
+          agendaItems={agendaItems}
+          attendances={attendances}
+          canViewFinancialData={canViewFinancialData}
+          onOpenClientFinance={onOpenClientFinance}
+          pools={pools}
+        />
+
         <AppCard>
           <DetailRow label="Plano" value={clientPlanLabels[client.plan]} />
           <DetailRow label="Frequencia" value={clientFrequencyLabels[client.frequency]} />
@@ -177,6 +195,63 @@ export function ClientDetailScreen({
         </AppCard>
       </ScrollView>
     </View>
+  );
+}
+
+function ClientSummaryCard({
+  agendaItems,
+  attendances,
+  canViewFinancialData,
+  onOpenClientFinance,
+  pools,
+}: {
+  agendaItems: AgendaItem[];
+  attendances: AttendanceRecord[];
+  canViewFinancialData: boolean;
+  onOpenClientFinance?: () => void;
+  pools: Piscina[];
+}) {
+  const [financeMessage, setFinanceMessage] = useState("");
+  const totalMonthlyValue = pools.reduce((total, pool) => total + (pool.valorMensal ?? 0), 0);
+  const dueDays = pools
+    .map((pool) => pool.diaVencimento)
+    .filter((day): day is number => typeof day === "number" && Number.isFinite(day));
+  const nextDueDay = dueDays.length > 0 ? Math.min(...dueDays) : undefined;
+  const predominantPlan = getPredominantPlan(pools);
+  const nextVisit = agendaItems.find((item) => item.status !== "finished");
+  const lastAttendance = attendances[0];
+
+  return (
+    <AppCard style={styles.summaryCard}>
+      <Text style={styles.sectionTitle}>Resumo do cliente</Text>
+      <DetailRow label="Total de piscinas cadastradas" value={String(pools.length)} />
+      {canViewFinancialData ? (
+        <>
+          <DetailRow label="Valor mensal total" value={formatCurrency(totalMonthlyValue)} />
+          <DetailRow label="Proximo vencimento" value={nextDueDay ? `Dia ${nextDueDay}` : "Nao informado"} />
+          <DetailRow label="Situacao financeira" value={formatFinancialStatus(nextDueDay)} />
+        </>
+      ) : null}
+      <DetailRow label="Plano predominante" value={predominantPlan} />
+      <DetailRow label="Proxima visita" value={nextVisit?.visitDate ?? nextVisit?.data ?? "Nao informada"} />
+      <DetailRow label="Ultimo atendimento" value={lastAttendance?.attendanceDate ?? "Nao informado"} />
+      {canViewFinancialData ? (
+        <PrimaryButton
+          onPress={() => {
+            setFinanceMessage("Financeiro detalhado será implementado em breve.");
+            onOpenClientFinance?.();
+          }}
+          style={styles.financeDetailButton}
+          title="Ver Financeiro do Cliente"
+          variant="secondary"
+        />
+      ) : null}
+      {financeMessage ? (
+        <Text selectable style={styles.summaryMessage}>
+          {financeMessage}
+        </Text>
+      ) : null}
+    </AppCard>
   );
 }
 
@@ -293,6 +368,33 @@ function formatNextVisit(pool: Piscina) {
   return days ? `Proximo atendimento em: ${days}` : "Nao informada";
 }
 
+function getPredominantPlan(pools: Piscina[]) {
+  const plans = pools
+    .map((pool) => pool.planoAtendimento)
+    .filter((plan): plan is NonNullable<Piscina["planoAtendimento"]> => Boolean(plan));
+
+  if (plans.length === 0) {
+    return "Nao informado";
+  }
+
+  const firstPlan = plans[0];
+  return plans.every((plan) => plan === firstPlan) ? planoAtendimentoLabels[firstPlan] : "Planos variados";
+}
+
+function formatFinancialStatus(nextDueDay?: number) {
+  if (!nextDueDay) {
+    return "Nao informado";
+  }
+
+  const today = new Date().getDate();
+
+  if (today === nextDueDay) {
+    return "Vence hoje";
+  }
+
+  return today > nextDueDay ? "Atrasado" : "Em dia";
+}
+
 function formatPoolFrequency(pool: Piscina) {
   if (pool.planoAtendimento === "mensal") {
     return "Mensal";
@@ -392,6 +494,12 @@ const styles = StyleSheet.create({
   poolCard: {
     gap: 14,
   },
+  financeDetailButton: {
+    alignSelf: "flex-start",
+    height: 44,
+    paddingHorizontal: 18,
+    width: 224,
+  },
   poolActionButton: {
     alignSelf: "flex-start",
     height: 44,
@@ -428,5 +536,14 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 20,
     fontWeight: "900",
+  },
+  summaryCard: {
+    gap: 14,
+  },
+  summaryMessage: {
+    color: colors.primaryLight,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
   },
 });

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AdministracaoScreen } from "./src/screens/AdministracaoScreen";
@@ -25,6 +26,7 @@ import { funcionariosRepository } from "./src/repositories/funcionarios-reposito
 import { piscinasRepository } from "./src/repositories/piscinas-repository";
 import { visitasRepository } from "./src/repositories/visitas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
+import { storageService } from "./src/services/storage-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
@@ -43,6 +45,16 @@ import {
   type ProductRequestItemStatus,
   type ProductRequestStatus,
 } from "./src/types/product-request";
+
+const POOL_SAVE_OPERATION_TIMEOUT_MS = 15000;
+const POOL_REFERENCE_PHOTO_UPLOAD_WARNING =
+  "Piscina salva sem foto. A foto será enviada em uma próxima atualização.";
+
+type PoolReferencePhotoUploadResult = {
+  fotoReferenciaPath?: string;
+  fotoReferenciaUrl?: string;
+  warningMessage?: string;
+};
 
 const initialAgendaItems: AgendaItem[] = [
   {
@@ -634,11 +646,15 @@ function AppContent() {
           status: "ativo",
           telefone: clientData.phone,
         });
+        const initialReferencePhotoUrl = !isTemporaryPhotoUri(clientData.referencePhotoUri ?? "")
+          ? clientData.referencePhotoUri
+          : undefined;
+        const initialReferencePhotoData = initialReferencePhotoUrl ? { fotoReferenciaUrl: initialReferencePhotoUrl } : {};
         const piscinaId = await piscinasRepository.create({
           clienteId,
           diaVencimento: clientData.diaVencimento,
           empresaId: authenticatedUserProfile.empresaId,
-          fotoReferenciaUrl: clientData.referencePhotoUri,
+          ...initialReferencePhotoData,
           litros: clientData.liters,
           nome: clientData.poolName?.trim() || "Piscina principal",
           observacoes: clientData.poolNotes ?? "",
@@ -650,17 +666,31 @@ function AppContent() {
           tipo: clientData.poolType,
           valorMensal: clientData.valorMensal,
         });
+        const uploadedPhoto = await uploadPoolReferencePhotoIfNeeded(
+          authenticatedUserProfile.empresaId,
+          clienteId,
+          piscinaId,
+          clientData.referencePhotoUri,
+        );
+
+        const photoFields = getUploadedPhotoFields(uploadedPhoto);
+
+        if (photoFields) {
+          await piscinasRepository.update(piscinaId, photoFields);
+        }
 
         const newClient: Client = {
           id: clienteId,
           piscinaId,
           ...clientData,
+          referencePhotoUri: photoFields?.fotoReferenciaUrl ?? initialReferencePhotoUrl,
         };
         const newPool: Piscina = {
           clienteId,
           diaVencimento: clientData.diaVencimento,
           empresaId: authenticatedUserProfile.empresaId,
-          fotoReferenciaUrl: clientData.referencePhotoUri,
+          fotoReferenciaPath: photoFields?.fotoReferenciaPath,
+          fotoReferenciaUrl: photoFields?.fotoReferenciaUrl ?? initialReferencePhotoUrl,
           id: piscinaId,
           litros: clientData.liters,
           nome: clientData.poolName?.trim() || "Piscina principal",
@@ -676,6 +706,7 @@ function AppContent() {
 
         setClients((currentClients) => [newClient, ...currentClients]);
         setPools((currentPools) => [newPool, ...currentPools]);
+        showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         setCurrentScreen("clients");
         return;
       } catch (error) {
@@ -732,11 +763,76 @@ function AppContent() {
         }
 
         if (selectedPoolId) {
-          await piscinasRepository.update(selectedPoolId, {
+          const uploadedPhoto = await uploadPoolReferencePhotoIfNeeded(
+            authenticatedUserProfile.empresaId,
+            poolData.clienteId,
+            selectedPoolId,
+            poolData.fotoReferenciaUrl,
+          );
+          const photoFields = getUploadedPhotoFields(uploadedPhoto);
+          const existingPhotoUrl =
+            selectedPool?.fotoReferenciaUrl ??
+            (!isTemporaryPhotoUri(poolData.fotoReferenciaUrl ?? "") ? poolData.fotoReferenciaUrl : undefined);
+          const nextPoolData = {
+            ...poolData,
+            ...photoFields,
+            fotoReferenciaPath: photoFields?.fotoReferenciaPath ?? selectedPool?.fotoReferenciaPath,
+            fotoReferenciaUrl: photoFields?.fotoReferenciaUrl ?? existingPhotoUrl ?? "",
+          };
+
+          await withOperationTimeout(
+            piscinasRepository.update(selectedPoolId, {
+              clienteId: nextPoolData.clienteId,
+              diaVencimento: nextPoolData.diaVencimento,
+              empresaId: authenticatedUserProfile.empresaId,
+              fotoReferenciaPath: nextPoolData.fotoReferenciaPath,
+              fotoReferenciaUrl: nextPoolData.fotoReferenciaUrl,
+              litros: nextPoolData.litros,
+              nome: nextPoolData.nome,
+              observacoes: nextPoolData.observacoes,
+              planoAtendimento: nextPoolData.planoAtendimento,
+              dataAvulsa: nextPoolData.dataAvulsa,
+              diaMensal: nextPoolData.diaMensal,
+              frequenciaSemanal: nextPoolData.frequenciaSemanal,
+              diasAtendimento: nextPoolData.diasAtendimento,
+              status: "ativa",
+              tipo: nextPoolData.tipo,
+              valorMensal: nextPoolData.valorMensal,
+            }),
+            "Tempo esgotado ao atualizar a piscina no Firestore.",
+          );
+
+          setPools((currentPools) =>
+            currentPools.map((pool) =>
+              pool.id === selectedPoolId
+                ? {
+                    ...pool,
+                    ...nextPoolData,
+                    empresaId: authenticatedUserProfile.empresaId,
+                    status: "ativa",
+                  }
+                : pool,
+            ),
+          );
+          setSelectedPoolId(null);
+          setSelectedClientId(poolData.clienteId);
+          showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
+          setCurrentScreen("client-detail");
+          return;
+        }
+
+        const initialPhotoData = isTemporaryPhotoUri(poolData.fotoReferenciaUrl ?? "")
+          ? {}
+          : {
+              fotoReferenciaPath: poolData.fotoReferenciaPath,
+              fotoReferenciaUrl: poolData.fotoReferenciaUrl,
+            };
+        const piscinaId = await withOperationTimeout(
+          piscinasRepository.create({
             clienteId: poolData.clienteId,
             diaVencimento: poolData.diaVencimento,
             empresaId: authenticatedUserProfile.empresaId,
-            fotoReferenciaUrl: poolData.fotoReferenciaUrl,
+            ...initialPhotoData,
             litros: poolData.litros,
             nome: poolData.nome,
             observacoes: poolData.observacoes,
@@ -748,47 +844,35 @@ function AppContent() {
             status: "ativa",
             tipo: poolData.tipo,
             valorMensal: poolData.valorMensal,
-          });
+          }),
+          "Tempo esgotado ao criar a piscina no Firestore.",
+        );
+        const uploadedPhoto = await uploadPoolReferencePhotoIfNeeded(
+          authenticatedUserProfile.empresaId,
+          poolData.clienteId,
+          piscinaId,
+          poolData.fotoReferenciaUrl,
+        );
 
-          setPools((currentPools) =>
-            currentPools.map((pool) =>
-              pool.id === selectedPoolId
-                ? {
-                    ...pool,
-                    ...poolData,
-                    empresaId: authenticatedUserProfile.empresaId,
-                    status: "ativa",
-                  }
-                : pool,
-            ),
+        const photoFields = getUploadedPhotoFields(uploadedPhoto);
+
+        if (photoFields) {
+          await withOperationTimeout(
+            piscinasRepository.update(piscinaId, photoFields),
+            "Tempo esgotado ao atualizar a foto da piscina no Firestore.",
           );
-          setSelectedPoolId(null);
-          setSelectedClientId(poolData.clienteId);
-          setCurrentScreen("client-detail");
-          return;
         }
 
-        const piscinaId = await piscinasRepository.create({
-          clienteId: poolData.clienteId,
-          diaVencimento: poolData.diaVencimento,
-          empresaId: authenticatedUserProfile.empresaId,
-          fotoReferenciaUrl: poolData.fotoReferenciaUrl,
-          litros: poolData.litros,
-          nome: poolData.nome,
-          observacoes: poolData.observacoes,
-          planoAtendimento: poolData.planoAtendimento,
-          dataAvulsa: poolData.dataAvulsa,
-          diaMensal: poolData.diaMensal,
-          frequenciaSemanal: poolData.frequenciaSemanal,
-          diasAtendimento: poolData.diasAtendimento,
-          status: "ativa",
-          tipo: poolData.tipo,
-          valorMensal: poolData.valorMensal,
-        });
+        const savedPoolData = {
+          ...poolData,
+          ...initialPhotoData,
+          ...photoFields,
+          fotoReferenciaUrl: photoFields?.fotoReferenciaUrl ?? initialPhotoData.fotoReferenciaUrl ?? "",
+        };
 
         setPools((currentPools) => [
           {
-            ...poolData,
+            ...savedPoolData,
             empresaId: authenticatedUserProfile.empresaId,
             id: piscinaId,
             status: "ativa",
@@ -796,6 +880,7 @@ function AppContent() {
           ...currentPools,
         ]);
         setSelectedClientId(poolData.clienteId);
+        showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         setCurrentScreen("client-detail");
         return;
       } catch (error) {
@@ -833,6 +918,50 @@ function AppContent() {
     ]);
     setSelectedClientId(poolData.clienteId);
     setCurrentScreen("client-detail");
+  }
+
+  async function uploadPoolReferencePhotoIfNeeded(
+    _empresaId: string,
+    _clienteId: string,
+    _piscinaId: string,
+    fotoReferenciaUrl?: string,
+  ): Promise<PoolReferencePhotoUploadResult> {
+    if (!fotoReferenciaUrl || !isTemporaryPhotoUri(fotoReferenciaUrl)) {
+      return {};
+    }
+
+    return {
+      warningMessage: POOL_REFERENCE_PHOTO_UPLOAD_WARNING,
+    };
+  }
+
+  function getUploadedPhotoFields(uploadedPhoto: PoolReferencePhotoUploadResult) {
+    if (!uploadedPhoto.fotoReferenciaPath || !uploadedPhoto.fotoReferenciaUrl) {
+      return undefined;
+    }
+
+    return {
+      fotoReferenciaPath: uploadedPhoto.fotoReferenciaPath,
+      fotoReferenciaUrl: uploadedPhoto.fotoReferenciaUrl,
+    };
+  }
+
+  function showPoolPhotoUploadWarning(message?: string) {
+    if (!message) {
+      return;
+    }
+
+    Alert.alert("Aviso", message);
+  }
+
+  function isTemporaryPhotoUri(uri: string) {
+    return (
+      uri.startsWith("blob:") ||
+      uri.startsWith("file:") ||
+      uri.startsWith("data:") ||
+      uri.startsWith("content:") ||
+      uri.startsWith("asset:")
+    );
   }
 
   function handleCreateEmployee(employeeData: EmployeeFormData) {
@@ -914,6 +1043,12 @@ function AppContent() {
             .filter((visit) => visit.status !== "concluida")
             .map((visit) => visitasRepository.delete(visit.id)),
         ]);
+
+        if (pool.fotoReferenciaPath) {
+          await storageService.remover(pool.fotoReferenciaPath).catch((error: unknown) => {
+            console.warn("Nao foi possivel excluir a foto de referencia da piscina.", error);
+          });
+        }
       } catch (error) {
         throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel excluir a piscina no Firestore."));
       }
@@ -962,8 +1097,25 @@ function AppContent() {
         });
 
         if (clientData.piscinaId) {
-          await piscinasRepository.update(clientData.piscinaId, {
+          const piscinaId = clientData.piscinaId;
+          const currentPool = pools.find((pool) => pool.id === piscinaId);
+          const uploadedPhoto = await uploadPoolReferencePhotoIfNeeded(
+            authenticatedUserProfile.empresaId,
+            selectedClientId,
+            piscinaId,
+            clientData.referencePhotoUri,
+          );
+          const photoFields = getUploadedPhotoFields(uploadedPhoto);
+          const existingPhotoUrl =
+            currentPool?.fotoReferenciaUrl ??
+            (!isTemporaryPhotoUri(clientData.referencePhotoUri ?? "") ? clientData.referencePhotoUri : undefined);
+          clientData = {
+            ...clientData,
+            referencePhotoUri: photoFields?.fotoReferenciaUrl ?? existingPhotoUrl,
+          };
+          await piscinasRepository.update(piscinaId, {
             diaVencimento: clientData.diaVencimento,
+            fotoReferenciaPath: photoFields?.fotoReferenciaPath ?? currentPool?.fotoReferenciaPath,
             fotoReferenciaUrl: clientData.referencePhotoUri,
             litros: clientData.liters,
             nome: clientData.poolName?.trim() || "Piscina principal",
@@ -975,12 +1127,17 @@ function AppContent() {
             tipo: clientData.poolType,
             valorMensal: clientData.valorMensal,
           });
+          showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         } else {
+          const initialReferencePhotoUrl = !isTemporaryPhotoUri(clientData.referencePhotoUri ?? "")
+            ? clientData.referencePhotoUri
+            : undefined;
+          const initialReferencePhotoData = initialReferencePhotoUrl ? { fotoReferenciaUrl: initialReferencePhotoUrl } : {};
           const piscinaId = await piscinasRepository.create({
             clienteId: selectedClientId,
             diaVencimento: clientData.diaVencimento,
             empresaId: authenticatedUserProfile.empresaId,
-            fotoReferenciaUrl: clientData.referencePhotoUri,
+            ...initialReferencePhotoData,
             litros: clientData.liters,
             nome: clientData.poolName?.trim() || "Piscina principal",
             observacoes: clientData.poolNotes ?? "",
@@ -992,7 +1149,25 @@ function AppContent() {
             tipo: clientData.poolType,
             valorMensal: clientData.valorMensal,
           });
-          clientData = { ...clientData, piscinaId };
+          const uploadedPhoto = await uploadPoolReferencePhotoIfNeeded(
+            authenticatedUserProfile.empresaId,
+            selectedClientId,
+            piscinaId,
+            clientData.referencePhotoUri,
+          );
+
+          const photoFields = getUploadedPhotoFields(uploadedPhoto);
+
+          if (photoFields) {
+            await piscinasRepository.update(piscinaId, photoFields);
+          }
+
+          clientData = {
+            ...clientData,
+            piscinaId,
+            referencePhotoUri: photoFields?.fotoReferenciaUrl ?? initialReferencePhotoUrl,
+          };
+          showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         }
       } catch (error) {
         throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel atualizar cliente e piscina no Firestore."));
@@ -1011,6 +1186,7 @@ function AppContent() {
             ? {
                 ...pool,
                 diaVencimento: clientData.diaVencimento,
+                fotoReferenciaPath: pool.fotoReferenciaPath,
                 fotoReferenciaUrl: clientData.referencePhotoUri,
                 litros: clientData.liters,
                 nome: clientData.poolName?.trim() || "Piscina principal",
@@ -1466,6 +1642,9 @@ function AppContent() {
       {currentScreen === "client-detail" && selectedClient && canAccessClients ? (
         <ClientDetailScreen
           client={selectedClient}
+          agendaItems={agendaItems.filter((item) => item.clientId === selectedClient.id || item.clientName === selectedClient.name)}
+          attendances={attendances.filter((attendance) => attendance.clientName === selectedClient.name)}
+          canViewFinancialData={canViewCommercialData}
           onAddPool={() => void handleOpenNewPool(selectedClient.id)}
           onBack={() => setCurrentScreen("clients")}
           onDelete={handleDeleteClient}
@@ -1792,6 +1971,17 @@ function getFirestoreFriendlyError(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function withOperationTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), POOL_SAVE_OPERATION_TIMEOUT_MS);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer));
+  });
 }
 
 function getAuthErrorMessage(error: unknown) {

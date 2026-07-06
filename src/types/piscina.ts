@@ -4,6 +4,7 @@ import type { WeekDay } from "./client";
 export type PiscinaStatus = "ativa" | "inativa";
 export type PlanoAtendimento = "mensal" | "quinzenal" | "semanal" | "todo_dia" | "avulso";
 export type FrequenciaSemanal = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type FrequenciaSemanalEditavel = 1 | 2 | 3 | 4 | 5;
 
 export type Piscina = {
   id: string;
@@ -14,6 +15,7 @@ export type Piscina = {
   litros?: number;
   observacoes?: string;
   fotoReferenciaUrl?: string;
+  fotoReferenciaPath?: string;
   planoAtendimento?: PlanoAtendimento;
   valorMensal?: number;
   diaVencimento?: number;
@@ -37,6 +39,7 @@ export type PiscinaFormData = {
   litros?: number;
   observacoes: string;
   fotoReferenciaUrl?: string;
+  fotoReferenciaPath?: string;
   planoAtendimento: PlanoAtendimento;
   valorMensal: number;
   diaVencimento: number;

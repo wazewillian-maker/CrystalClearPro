@@ -9,6 +9,7 @@ import colors from "../theme/colors";
 import { weekDayLabels, type Client, type WeekDay } from "../types/client";
 import {
   frequenciaSemanalLabels,
+  type FrequenciaSemanalEditavel,
   planoAtendimentoLabels,
   type FrequenciaSemanal,
   type Piscina,
@@ -17,8 +18,9 @@ import {
 } from "../types/piscina";
 
 const planOptions: PlanoAtendimento[] = ["mensal", "quinzenal", "semanal", "todo_dia", "avulso"];
-const frequencyOptions: FrequenciaSemanal[] = [1, 2, 3, 4, 5, 6, 7];
+const frequencyOptions: FrequenciaSemanalEditavel[] = [1, 2, 3, 4, 5];
 const weekDayOptions: WeekDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const SAVE_TIMEOUT_MS = 20000;
 
 type NewPoolScreenProps = {
   canViewContactData?: boolean;
@@ -66,8 +68,13 @@ export function NewPoolScreen({
       : "",
   );
   const [singleServiceDate, setSingleServiceDate] = useState(editingPool?.dataAvulsa ?? editingPool?.dataAtendimentoAvulso ?? "");
-  const [weeklyFrequency, setWeeklyFrequency] = useState<FrequenciaSemanal>(editingPool?.frequenciaSemanal ?? 1);
-  const [serviceWeekDays, setServiceWeekDays] = useState<WeekDay[]>(editingPool?.diasAtendimento ?? []);
+  const initialWeekDays = editingPool?.diasAtendimento ?? [];
+  const [weeklyFrequency, setWeeklyFrequency] = useState<FrequenciaSemanal>(
+    editingPool?.planoAtendimento === "todo_dia"
+      ? 7
+      : normalizeEditableFrequency(editingPool?.frequenciaSemanal ?? initialWeekDays.length),
+  );
+  const [serviceWeekDays, setServiceWeekDays] = useState<WeekDay[]>(initialWeekDays.slice(0, weeklyFrequency));
   const [observations, setObservations] = useState(editingPool?.observacoes ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -106,10 +113,21 @@ export function NewPoolScreen({
     if (nextPlan === "todo_dia") {
       setWeeklyFrequency(7);
       setServiceWeekDays(weekDayOptions);
+      return;
+    }
+
+    if (plan === "todo_dia" && (nextPlan === "semanal" || nextPlan === "quinzenal")) {
+      setWeeklyFrequency(1);
+      setServiceWeekDays([]);
+      return;
+    }
+
+    if (nextPlan === "mensal" || nextPlan === "avulso") {
+      setServiceWeekDays([]);
     }
   }
 
-  function handleFrequencyChange(nextFrequency: FrequenciaSemanal) {
+  function handleFrequencyChange(nextFrequency: FrequenciaSemanalEditavel) {
     setWeeklyFrequency(nextFrequency);
     setError("");
     setServiceWeekDays((currentDays) => currentDays.slice(0, nextFrequency));
@@ -165,12 +183,13 @@ export function NewPoolScreen({
     }
 
     const needsWeekDays = plan === "semanal" || plan === "quinzenal" || plan === "todo_dia";
-    if (needsWeekDays && serviceWeekDays.length === 0) {
-      setError("Selecione pelo menos um dia de atendimento.");
+    if (needsWeekDays && serviceWeekDays.length !== weeklyFrequency) {
+      setError(`Selecione exatamente ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""} de atendimento.`);
       return;
     }
-    if (needsWeekDays && serviceWeekDays.length > weeklyFrequency) {
-      setError(`Selecione no maximo ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""} de atendimento.`);
+
+    if (!poolType.trim()) {
+      setError("Informe o tipo da piscina.");
       return;
     }
 
@@ -200,21 +219,21 @@ export function NewPoolScreen({
     setSaving(true);
 
     try {
-      await onSave({
+      await withTimeout(Promise.resolve(onSave({
         clienteId,
         diaVencimento: parsedDueDay,
-        fotoReferenciaUrl: referencePhotoUri,
+        fotoReferenciaUrl: referencePhotoUri || "",
         litros: parsedLiters,
         nome: name.trim(),
         observacoes: observations.trim(),
         planoAtendimento: plan,
-        dataAvulsa: plan === "avulso" ? singleServiceDate.trim() : "",
+        dataAvulsa: plan === "avulso" ? singleServiceDate.trim() : undefined,
         diaMensal: plan === "mensal" ? parsedServiceMonthDay : undefined,
         frequenciaSemanal: needsWeekDays ? weeklyFrequency : undefined,
         diasAtendimento: needsWeekDays ? serviceWeekDays : [],
         tipo: poolType.trim(),
         valorMensal: parsedMonthlyValue,
-      });
+      })), SAVE_TIMEOUT_MS, "Tempo esgotado ao salvar a piscina. Tente novamente.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar a piscina.");
     } finally {
@@ -299,7 +318,7 @@ export function NewPoolScreen({
         <View style={styles.card}>
           <Text style={styles.groupTitle}>Foto de Referencia da Piscina</Text>
           <Text selectable style={styles.helperText}>
-            Essa foto sera usada para identificar esta piscina em todo o aplicativo.
+            Foto sera enviada em uma proxima atualizacao.
           </Text>
           <PoolReferencePhoto size="banner" uri={referencePhotoUri} />
           <PrimaryButton
@@ -400,7 +419,7 @@ export function NewPoolScreen({
             <Text selectable style={styles.helperText}>
               {plan === "todo_dia"
                 ? "Todos os dias foram selecionados automaticamente."
-                : `Selecione ate ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""}.`}
+                : `Selecione exatamente ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""}.`}
             </Text>
             <View style={styles.optionGrid}>
               {weekDayOptions.map((day) => (
@@ -489,6 +508,25 @@ function FormField({ label, onChangeText, placeholder, value, keyboardType = "de
       />
     </View>
   );
+}
+
+function normalizeEditableFrequency(frequency?: number): FrequenciaSemanalEditavel {
+  if (!frequency || frequency < 1) {
+    return 1;
+  }
+
+  return Math.min(frequency, 5) as FrequenciaSemanalEditavel;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer));
+  });
 }
 
 const styles = StyleSheet.create({

@@ -6,6 +6,46 @@ import { mapFirestoreDocs } from "./firestore-mapper";
 
 const collectionName = "piscinas";
 
+export function limparUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+function limparDadosPiscina<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const data = limparUndefined(obj) as Record<string, unknown>;
+  const planoAtendimento = data.planoAtendimento;
+  const hasPlanoAtendimento = typeof planoAtendimento === "string";
+  const usesWeekDays =
+    planoAtendimento === "semanal" || planoAtendimento === "quinzenal" || planoAtendimento === "todo_dia";
+
+  if (hasPlanoAtendimento && planoAtendimento !== "avulso") {
+    data.dataAvulsa = null;
+    data.dataAtendimentoAvulso = null;
+    data.dataAtendimentoAvulsa = null;
+  } else if (data.dataAvulsa === "") {
+    data.dataAvulsa = null;
+  }
+
+  if (hasPlanoAtendimento && planoAtendimento !== "mensal") {
+    data.diaMensal = null;
+    data.diaMesAtendimento = null;
+  } else if (data.diaMensal === "") {
+    data.diaMensal = null;
+  }
+
+  if (hasPlanoAtendimento && !usesWeekDays) {
+    data.frequenciaSemanal = null;
+    data.diasAtendimento = [];
+  }
+
+  if ("nome" in data && data.nome === "") {
+    data.nome = "Piscina principal";
+  }
+
+  return limparUndefined(data as T);
+}
+
 export const piscinasRepository = {
   async getById(id: string): Promise<Piscina | null> {
     const snapshot = await getDoc(doc(getFirebaseFirestore(), collectionName, id));
@@ -24,7 +64,7 @@ export const piscinasRepository = {
 
   async create(data: Omit<Piscina, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
-      ...data,
+      ...limparDadosPiscina(data as unknown as Record<string, unknown>),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -33,7 +73,7 @@ export const piscinasRepository = {
 
   async update(id: string, data: Partial<Omit<Piscina, "id" | "createdAt" | "criadoEm">>): Promise<void> {
     await updateDoc(doc(getFirebaseFirestore(), collectionName, id), {
-      ...data,
+      ...limparDadosPiscina(data as unknown as Record<string, unknown>),
       updatedAt: serverTimestamp(),
     });
   },
