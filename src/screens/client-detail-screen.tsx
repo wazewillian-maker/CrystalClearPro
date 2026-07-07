@@ -135,6 +135,7 @@ export function ClientDetailScreen({
               confirmDelete={confirmDeletePoolId === pool.id}
               key={pool.id}
               clientName={client.name}
+              attendances={attendances.filter((attendance) => attendance.piscinaId === pool.id)}
               onCancelDelete={() => setConfirmDeletePoolId(null)}
               onConfirmDelete={async () => {
                 try {
@@ -257,6 +258,7 @@ function ClientSummaryCard({
 
 function PoolDetailCard({
   clientName,
+  attendances,
   confirmDelete,
   onCancelDelete,
   onConfirmDelete,
@@ -265,6 +267,7 @@ function PoolDetailCard({
   pool,
 }: {
   clientName: string;
+  attendances: AttendanceRecord[];
   confirmDelete: boolean;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
@@ -298,6 +301,21 @@ function PoolDetailCard({
         value={typeof pool.diaVencimento === "number" ? String(pool.diaVencimento) : "Nao informado"}
       />
       <DetailRow label="Observacoes" value={pool.observacoes || "Sem observacoes"} />
+      <View style={styles.poolHistory}>
+        <Text style={styles.groupTitle}>Historico da piscina</Text>
+        {attendances.length > 0 ? (
+          attendances.map((attendance) => (
+            <View key={attendance.id} style={styles.historyItem}>
+              <DetailRow label="Data" value={attendance.attendanceDate} />
+              <DetailRow label="Atendido por" value={attendance.employeeName ?? "Nao informado"} />
+              <DetailRow label="pH" value={attendance.ph || "Nao informado"} />
+              <DetailRow label="Cloro" value={attendance.chlorine || "Nao informado"} />
+            </View>
+          ))
+        ) : (
+          <DetailRow label="Atendimentos concluidos" value="Nenhum atendimento concluido para esta piscina." />
+        )}
+      </View>
       <View style={styles.poolActions}>
         <PrimaryButton onPress={onEdit} style={styles.poolActionButton} title="Editar" variant="secondary" />
         <PrimaryButton onPress={onDelete} style={styles.poolActionButton} title="Excluir" variant="danger" />
@@ -500,6 +518,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     width: 224,
   },
+  groupTitle: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  historyItem: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
   poolActionButton: {
     alignSelf: "flex-start",
     height: 44,
@@ -509,6 +540,9 @@ const styles = StyleSheet.create({
   poolActions: {
     flexDirection: "row",
     flexWrap: "wrap",
+    gap: 10,
+  },
+  poolHistory: {
     gap: 10,
   },
   quickButton: {

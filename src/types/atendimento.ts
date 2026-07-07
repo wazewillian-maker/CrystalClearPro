@@ -26,6 +26,8 @@ export type Atendimento = {
   atendidoPor?: string;
   data: string;
   checklist: AtendimentoChecklist;
+  ph?: string;
+  cloro?: string;
   produtosUtilizados?: string;
   observacoes?: string;
   fotoAntesUrl?: string;

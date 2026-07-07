@@ -111,7 +111,10 @@ function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
           {attendance.clientName}
         </Text>
         <DetailRow label="Data do atendimento" value={attendance.attendanceDate} />
+        <DetailRow label="Piscina" value={attendance.poolName ?? "Piscina nao encontrada"} />
         <DetailRow label="Atendido por" value={attendance.employeeName ?? "Nao informado"} />
+        <DetailRow label="pH" value={attendance.ph || "Nao informado"} />
+        <DetailRow label="Cloro" value={attendance.chlorine || "Nao informado"} />
         <DetailRow
           label="Checklist realizado"
           value={
@@ -176,7 +179,15 @@ function PhotoCard({ label, uri }: PhotoCardProps) {
   return (
     <View style={styles.photoCard}>
       <Text style={styles.groupTitle}>{label}</Text>
-      <Image accessibilityLabel={label} source={{ uri }} style={styles.photo} />
+      {uri ? (
+        <Image accessibilityLabel={label} source={{ uri }} style={styles.photo} />
+      ) : (
+        <View style={styles.emptyPhoto}>
+          <Text selectable style={styles.emptyPhotoText}>
+            Foto nao registrada
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -254,6 +265,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 220,
     padding: 24,
+  },
+  emptyPhoto: {
+    alignItems: "center",
+    backgroundColor: colors.input,
+    borderRadius: 8,
+    height: 140,
+    justifyContent: "center",
+    width: "100%",
+  },
+  emptyPhotoText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "800",
   },
   emptyTitle: {
     color: colors.textSecondary,

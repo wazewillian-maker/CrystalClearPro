@@ -28,8 +28,8 @@ const checklistItems: ChecklistItem[] = [
   { id: "vacuumed", label: "Aspiracao" },
   { id: "brushed-edges", label: "Escovacao das bordas" },
   { id: "cleaned-prefilter", label: "Limpeza do pre-filtro" },
-  { id: "measured-ph", label: "Medição de pH" },
-  { id: "measured-chlorine", label: "Medição de cloro" },
+  { id: "measured-ph", label: "Medicao de pH" },
+  { id: "measured-chlorine", label: "Medicao de cloro" },
   { id: "applied-product", label: "Aplicacao de produto" },
   { id: "washed-filter", label: "Lavagem do filtro" },
 ];
@@ -37,25 +37,39 @@ const checklistItems: ChecklistItem[] = [
 type AtendimentoScreenProps = {
   canViewCommercialData?: boolean;
   clients?: Client[];
+  initialAttendanceDate?: string;
   onBack: () => void;
-  onSaveAttendance: (attendance: AttendanceRecord) => void;
+  onSaveAttendance: (attendance: AttendanceRecord) => Promise<void> | void;
+  initialClientId?: string;
   initialClientName?: string;
+  initialEmpresaId?: string;
+  initialPiscinaId?: string;
+  initialPoolName?: string;
+  initialVisitId?: string;
   responsibleName?: string;
 };
 
 export function AtendimentoScreen({
   canViewCommercialData = true,
   clients = [],
+  initialAttendanceDate,
   onBack,
   onSaveAttendance,
+  initialClientId,
   initialClientName,
+  initialEmpresaId,
+  initialPiscinaId,
+  initialPoolName,
+  initialVisitId,
   responsibleName,
 }: AtendimentoScreenProps) {
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
-  const [attendanceDate, setAttendanceDate] = useState(new Date().toLocaleDateString("pt-BR"));
+  const [attendanceDate, setAttendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [productsUsed, setProductsUsed] = useState("Cloro granulado, clarificante");
+  const [ph, setPh] = useState("");
+  const [chlorine, setChlorine] = useState("");
   const [observations, setObservations] = useState("");
   const [missingProduct, setMissingProduct] = useState("");
   const [missingQuantity, setMissingQuantity] = useState("");
@@ -64,9 +78,11 @@ export function AtendimentoScreen({
   const [beforePhotoUri, setBeforePhotoUri] = useState("");
   const [afterPhotoUri, setAfterPhotoUri] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
-  const selectedClient = clients.find((client) => client.name === clientName);
+  const selectedClient = clients.find((client) => client.id === initialClientId || client.name === clientName);
+  const lockedAgendaVisit = Boolean(initialVisitId);
 
   useEffect(() => {
     return () => {
@@ -152,7 +168,7 @@ export function AtendimentoScreen({
     );
   }
 
-  function finalizeAttendance() {
+  async function finalizeAttendance() {
     setSuccessMessage("");
 
     if (!clientName.trim() || !attendanceDate.trim()) {
@@ -160,41 +176,50 @@ export function AtendimentoScreen({
       return;
     }
 
-    if (!beforePhotoUri || !afterPhotoUri) {
-      setError("Adicione a foto do antes e a foto do depois para finalizar.");
-      return;
-    }
-
     setError("");
+    setSaving(true);
 
-    const completedLabels = completedItems.map((itemId) => {
-      const checklistItem = checklistItems.find((item) => item.id === itemId);
-      return checklistItem?.label ?? itemId;
-    });
+    try {
+      const completedLabels = completedItems.map((itemId) => {
+        const checklistItem = checklistItems.find((item) => item.id === itemId);
+        return checklistItem?.label ?? itemId;
+      });
 
-    const finishedAttendance: AttendanceRecord = {
-      id: String(Date.now()),
-      clientName: clientName.trim(),
-      attendanceDate: attendanceDate.trim(),
-      completedItems: completedLabels,
-      missingProducts,
-      productsUsed: productsUsed.trim(),
-      observations: observations.trim(),
-      beforePhotoUri,
-      afterPhotoUri,
-    };
+      const finishedAttendance: AttendanceRecord = {
+        id: String(Date.now()),
+        attendanceDate: attendanceDate.trim(),
+        beforePhotoUri,
+        chlorine: chlorine.trim(),
+        clienteId: initialClientId ?? selectedClient?.id,
+        clientName: clientName.trim(),
+        completedItems: completedLabels,
+        empresaId: initialEmpresaId,
+        missingProducts,
+        observations: observations.trim(),
+        ph: ph.trim(),
+        piscinaId: initialPiscinaId ?? selectedClient?.piscinaId,
+        poolName: initialPoolName ?? selectedClient?.poolName,
+        productsUsed: productsUsed.trim(),
+        visitaId: initialVisitId,
+        afterPhotoUri,
+      };
 
-    setAttendanceRecord(finishedAttendance);
-    onSaveAttendance(finishedAttendance);
-    setSuccessMessage(
-      missingProducts.length > 0
-        ? "Limpeza concluida. Solicitacao de produtos pendente para aprovacao. Voltando para a Home..."
-        : "Limpeza concluida. Voltando para a Home...",
-    );
+      await onSaveAttendance(finishedAttendance);
+      setAttendanceRecord(finishedAttendance);
+      setSuccessMessage(
+        missingProducts.length > 0
+          ? "Limpeza concluida. Produtos faltando registrados. Voltando para a Home..."
+          : "Limpeza concluida. Voltando para a Home...",
+      );
 
-    returnHomeTimerRef.current = setTimeout(() => {
-      onBack();
-    }, 1500);
+      returnHomeTimerRef.current = setTimeout(() => {
+        onBack();
+      }, 1500);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Nao foi possivel finalizar o atendimento.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -244,7 +269,13 @@ export function AtendimentoScreen({
             {clientName || "Piscina em atendimento"}
           </Text>
           <Text selectable style={styles.responsibleText}>
+            Piscina: {initialPoolName ?? selectedClient?.poolName ?? "Piscina nao encontrada"}
+          </Text>
+          <Text selectable style={styles.responsibleText}>
             Responsavel: {responsibleName ?? "Nao atribuido"}
+          </Text>
+          <Text selectable style={styles.responsibleText}>
+            Data da visita: {attendanceDate}
           </Text>
           <Text selectable style={styles.helperText}>
             {selectedClient
@@ -258,7 +289,7 @@ export function AtendimentoScreen({
         </View>
 
         <View style={styles.card}>
-          {clients.length > 0 ? (
+          {clients.length > 0 && !lockedAgendaVisit ? (
             <View style={styles.field}>
               <Text style={styles.label}>Selecionar cliente</Text>
               <View style={styles.clientPicker}>
@@ -282,6 +313,7 @@ export function AtendimentoScreen({
           ) : null}
           <FormField
             label="Nome do cliente"
+            editable={!lockedAgendaVisit}
             onChangeText={(text) => {
               setClientName(text);
               setSuccessMessage("");
@@ -291,6 +323,7 @@ export function AtendimentoScreen({
           />
           <FormField
             label="Data do atendimento"
+            editable={!lockedAgendaVisit}
             onChangeText={(text) => {
               setAttendanceDate(text);
               setSuccessMessage("");
@@ -330,6 +363,26 @@ export function AtendimentoScreen({
         </View>
 
         <View style={styles.card}>
+          <View style={styles.measureGrid}>
+            <FormField
+              label="pH"
+              onChangeText={(text) => {
+                setPh(text);
+                setSuccessMessage("");
+              }}
+              placeholder="Ex: 7.2"
+              value={ph}
+            />
+            <FormField
+              label="Cloro"
+              onChangeText={(text) => {
+                setChlorine(text);
+                setSuccessMessage("");
+              }}
+              placeholder="Ex: 1.5 ppm"
+              value={chlorine}
+            />
+          </View>
           <FormField
             label="Produtos utilizados"
             multiline
@@ -472,6 +525,7 @@ export function AtendimentoScreen({
         </View>
 
         <PrimaryButton
+          loading={saving}
           onPress={finalizeAttendance}
           style={styles.finalizeButton}
           title="Finalizar atendimento"
@@ -495,6 +549,7 @@ export function AtendimentoScreen({
 }
 
 type FormFieldProps = {
+  editable?: boolean;
   label: string;
   value: string;
   placeholder: string;
@@ -503,6 +558,7 @@ type FormFieldProps = {
 };
 
 function FormField({
+  editable = true,
   label,
   value,
   placeholder,
@@ -513,11 +569,12 @@ function FormField({
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        editable={editable}
         multiline={multiline}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
-        style={[styles.input, multiline && styles.textArea]}
+        style={[styles.input, !editable && styles.inputDisabled, multiline && styles.textArea]}
         textAlignVertical={multiline ? "top" : "center"}
         value={value}
       />
@@ -663,6 +720,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: 14,
   },
+  inputDisabled: {
+    opacity: 0.72,
+  },
   label: {
     color: colors.muted,
     fontSize: 13,
@@ -696,6 +756,11 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: "900",
+  },
+  measureGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
   },
   photoActions: {
     gap: 12,

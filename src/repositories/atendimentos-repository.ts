@@ -6,9 +6,18 @@ import { mapFirestoreDocs } from "./firestore-mapper";
 
 const collectionName = "atendimentos";
 
+function limparUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
 export const atendimentosRepository = {
-  async listByPiscina(piscinaId: string): Promise<Atendimento[]> {
-    const snapshot = await getDocs(query(collection(getFirebaseFirestore(), collectionName), where("piscinaId", "==", piscinaId)));
+  async listByPiscina(piscinaId: string, empresaId?: string): Promise<Atendimento[]> {
+    const constraints = empresaId
+      ? [where("empresaId", "==", empresaId), where("piscinaId", "==", piscinaId)]
+      : [where("piscinaId", "==", piscinaId)];
+    const snapshot = await getDocs(query(collection(getFirebaseFirestore(), collectionName), ...constraints));
     return mapFirestoreDocs<Atendimento>(snapshot);
   },
 
@@ -19,7 +28,7 @@ export const atendimentosRepository = {
 
   async create(data: Omit<Atendimento, "id" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
-      ...data,
+      ...limparUndefined(data as unknown as Record<string, unknown>),
       criadoEm: serverTimestamp(),
       atualizadoEm: serverTimestamp(),
     });

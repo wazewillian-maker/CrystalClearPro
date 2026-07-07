@@ -27,10 +27,12 @@ import { piscinasRepository } from "./src/repositories/piscinas-repository";
 import { visitasRepository } from "./src/repositories/visitas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
 import { agendaService } from "./src/services/agenda-service";
+import { atendimentoService } from "./src/services/atendimento-service";
 import { storageService } from "./src/services/storage-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
 import type { AttendanceRecord } from "./src/types/attendance";
+import type { Atendimento, AtendimentoChecklist } from "./src/types/atendimento";
 import type { Client, ClientFormData, ClientPlan, WeekDay } from "./src/types/client";
 import type { Cliente } from "./src/types/cliente";
 import type { Employee, EmployeeFormData } from "./src/types/employee";
@@ -190,6 +192,7 @@ function AppContent() {
     ? pools.filter((pool) => pool.clienteId === selectedClientId && pool.status !== "inativa")
     : [];
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
+  const selectedAgendaPool = pools.find((pool) => pool.id === selectedAgendaItem?.piscinaId);
   const authenticatedPerfil = authenticatedUserProfile?.perfil;
   const isOperationalStaffView = isTestMode ? activeRole === "staff" : authenticatedPerfil === "funcionario";
   const canAccessClients =
@@ -368,7 +371,7 @@ function AppContent() {
     }
 
     void loadFirestoreEmployees(authenticatedUserProfile.empresaId);
-  }, [authLoading, authenticatedUserProfile?.empresaId, isTestMode]);
+  }, [authLoading, authenticatedUserProfile?.empresaId, clients.length, isTestMode, pools.length]);
 
   useEffect(() => {
     if (authLoading || isTestMode || !authenticatedUserProfile) {
@@ -385,6 +388,14 @@ function AppContent() {
     employees,
     isTestMode,
   ]);
+
+  useEffect(() => {
+    if (authLoading || isTestMode || !authenticatedUserProfile) {
+      return;
+    }
+
+    void loadFirestoreAttendances(authenticatedUserProfile.empresaId);
+  }, [authLoading, authenticatedUserProfile?.empresaId, isTestMode]);
 
   useEffect(() => {
     if (authLoading || currentScreen !== "splash") {
@@ -561,6 +572,15 @@ function AppContent() {
       setClientsError(getFirestoreFriendlyError(error, "Nao foi possivel carregar os dados do cliente."));
     } finally {
       setClientsLoading(false);
+    }
+  }
+
+  async function loadFirestoreAttendances(empresaId: string) {
+    try {
+      const firestoreAttendances = await atendimentoService.listarPorEmpresa(empresaId);
+      setAttendances(firestoreAttendances.map((attendance) => mapFirestoreAttendanceToAttendanceRecord(attendance, clients, pools)));
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar o historico de atendimentos."));
     }
   }
 
@@ -1310,12 +1330,65 @@ function AppContent() {
     setCurrentScreen("clients");
   }
 
-  function handleSaveAttendance(attendance: AttendanceRecord) {
+  async function handleSaveAttendance(attendance: AttendanceRecord) {
     const attendanceWithEmployee: AttendanceRecord = {
       ...attendance,
       employeeId: selectedAgendaItem?.assignedEmployeeId ?? activeEmployee?.id,
       employeeName: selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name,
     };
+
+    if (!isTestMode && authenticatedUserProfile && selectedAgendaItem) {
+      if (authenticatedUserProfile.perfil === "funcionario") {
+        const assignedEmployeeId = selectedAgendaItem.assignedEmployeeId ?? selectedAgendaItem.funcionarioId;
+
+        if (!authenticatedUserProfile.funcionarioId || assignedEmployeeId !== authenticatedUserProfile.funcionarioId) {
+          throw new Error("Voce so pode finalizar visitas atribuidas a voce.");
+        }
+      }
+
+      try {
+        const clienteId = attendanceWithEmployee.clienteId ?? selectedAgendaItem.clientId;
+        const piscinaId = attendanceWithEmployee.piscinaId ?? selectedAgendaItem.piscinaId;
+
+        if (!clienteId || !piscinaId) {
+          throw new Error("Visita sem cliente ou piscina vinculada.");
+        }
+
+        const atendimentoId = await atendimentoService.criarAtendimento({
+          atendidoPor: attendanceWithEmployee.employeeName ?? activeEmployee?.name ?? "Sem responsavel",
+          checklist: mapAttendanceChecklist(attendanceWithEmployee.completedItems),
+          clienteId,
+          cloro: attendanceWithEmployee.chlorine,
+          data: attendanceWithEmployee.attendanceDate,
+          empresaId: authenticatedUserProfile.empresaId,
+          fotoAntesUrl: attendanceWithEmployee.beforePhotoUri || undefined,
+          fotoDepoisUrl: attendanceWithEmployee.afterPhotoUri || undefined,
+          funcionarioId: attendanceWithEmployee.employeeId ?? activeEmployee?.id,
+          observacoes: attendanceWithEmployee.observations,
+          ph: attendanceWithEmployee.ph,
+          piscinaId,
+          produtosFaltando: attendanceWithEmployee.missingProducts.map((item) => ({
+            observacao: item.observation,
+            produto: item.product,
+            quantidade: item.quantity,
+          })),
+          produtosUtilizados: attendanceWithEmployee.productsUsed,
+          visitaId: selectedAgendaItem.id,
+        });
+
+        await visitasRepository.update(selectedAgendaItem.id, {
+          funcionarioId: attendanceWithEmployee.employeeId ?? activeEmployee?.id ?? selectedAgendaItem.funcionarioId ?? null,
+          responsavelNome: attendanceWithEmployee.employeeName ?? activeEmployee?.name ?? selectedAgendaItem.assignedEmployeeName ?? null,
+          status: "concluida",
+        });
+
+        attendanceWithEmployee.id = atendimentoId;
+        attendanceWithEmployee.empresaId = authenticatedUserProfile.empresaId;
+        attendanceWithEmployee.visitaId = selectedAgendaItem.id;
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel salvar o atendimento no Firestore."));
+      }
+    }
 
     setAttendances((currentAttendances) => [attendanceWithEmployee, ...currentAttendances]);
 
@@ -1341,7 +1414,9 @@ function AppContent() {
     }
 
     if (selectedAgendaItemId) {
-      handleUpdateAgendaStatus(selectedAgendaItemId, "finished");
+      setAgendaItems((currentItems) =>
+        currentItems.map((item) => (item.id === selectedAgendaItemId ? { ...item, status: "finished" } : item)),
+      );
     }
   }
 
@@ -1570,6 +1645,15 @@ function AppContent() {
   }
 
   async function handleStartAgendaAttendance(agendaItem: AgendaItem) {
+    if (!isTestMode && authenticatedUserProfile?.perfil === "funcionario") {
+      const assignedEmployeeId = agendaItem.assignedEmployeeId ?? agendaItem.funcionarioId;
+
+      if (!authenticatedUserProfile.funcionarioId || assignedEmployeeId !== authenticatedUserProfile.funcionarioId) {
+        setAgendaError("Voce so pode atender visitas atribuidas a voce.");
+        return;
+      }
+    }
+
     setSelectedAgendaItemId(agendaItem.id);
     await handleUpdateAgendaStatus(agendaItem.id, "in-progress");
     setCurrentScreen("attendance");
@@ -1786,9 +1870,15 @@ function AppContent() {
         <AtendimentoScreen
           canViewCommercialData={canViewCommercialData}
           clients={clients}
+          initialAttendanceDate={selectedAgendaItem?.data ?? selectedAgendaItem?.visitDate}
+          initialClientId={selectedAgendaItem?.clientId}
           onBack={() => setCurrentScreen("home")}
           onSaveAttendance={handleSaveAttendance}
           initialClientName={selectedAgendaItem?.clientName}
+          initialEmpresaId={authenticatedUserProfile?.empresaId}
+          initialPiscinaId={selectedAgendaItem?.piscinaId}
+          initialPoolName={selectedAgendaPool?.nome ?? selectedAgendaItem?.poolName}
+          initialVisitId={selectedAgendaItem?.id}
           responsibleName={selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name}
         />
       ) : null}
@@ -2802,6 +2892,74 @@ function mapVisitaOrigemToAgendaOrigem(origem: VisitaOrigem): NonNullable<Agenda
   }
 
   return "Automatica";
+}
+
+function mapAttendanceChecklist(completedItems: string[]): AtendimentoChecklist {
+  return {
+    aplicacaoProduto: completedItems.includes("Aplicacao de produto"),
+    aspiracao: completedItems.includes("Aspiracao"),
+    escovacaoBordas: completedItems.includes("Escovacao das bordas"),
+    lavagemFiltro: completedItems.includes("Lavagem do filtro"),
+    limpezaPreFiltro: completedItems.includes("Limpeza do pre-filtro"),
+    medicaoCloro:
+      completedItems.includes("Medicao de cloro") ||
+      completedItems.includes("Medição de cloro") ||
+      completedItems.includes("MediÃ§Ã£o de cloro"),
+    medicaoPh:
+      completedItems.includes("Medicao de pH") ||
+      completedItems.includes("Medição de pH") ||
+      completedItems.includes("MediÃ§Ã£o de pH"),
+  };
+}
+
+function mapFirestoreAttendanceToAttendanceRecord(
+  attendance: Atendimento,
+  currentClients: Client[],
+  currentPools: Piscina[],
+): AttendanceRecord {
+  const client = currentClients.find((currentClient) => currentClient.id === attendance.clienteId);
+  const pool = currentPools.find((currentPool) => currentPool.id === attendance.piscinaId);
+
+  return {
+    afterPhotoUri: attendance.fotoDepoisUrl ?? "",
+    attendanceDate: safeText(attendance.data, "Data nao informada"),
+    beforePhotoUri: attendance.fotoAntesUrl ?? "",
+    chlorine: attendance.cloro ?? "",
+    clienteId: attendance.clienteId,
+    clientName: safeText(client?.name, "Cliente nao encontrado"),
+    completedItems: mapChecklistLabels(attendance.checklist),
+    employeeId: attendance.funcionarioId,
+    employeeName: attendance.atendidoPor,
+    empresaId: attendance.empresaId,
+    id: attendance.id,
+    missingProducts:
+      attendance.produtosFaltando?.map((item, index) => ({
+        id: `${attendance.id}-missing-${index}`,
+        observation: item.observacao ?? "",
+        product: item.produto,
+        quantity: item.quantidade,
+      })) ?? [],
+    observations: attendance.observacoes ?? "",
+    ph: attendance.ph ?? "",
+    piscinaId: attendance.piscinaId,
+    poolName: safeText(pool?.nome, "Piscina nao encontrada"),
+    productsUsed: attendance.produtosUtilizados ?? "",
+    visitaId: attendance.visitaId,
+  };
+}
+
+function mapChecklistLabels(checklist: AtendimentoChecklist) {
+  const labels: string[] = [];
+
+  if (checklist.aspiracao) labels.push("Aspiracao");
+  if (checklist.escovacaoBordas) labels.push("Escovacao das bordas");
+  if (checklist.limpezaPreFiltro) labels.push("Limpeza do pre-filtro");
+  if (checklist.medicaoPh) labels.push("Medicao de pH");
+  if (checklist.medicaoCloro) labels.push("Medicao de cloro");
+  if (checklist.aplicacaoProduto) labels.push("Aplicacao de produto");
+  if (checklist.lavagemFiltro) labels.push("Lavagem do filtro");
+
+  return labels;
 }
 
 function mapClientPlanToPlanoAtendimento(plan: ClientPlan): PlanoAtendimento {
