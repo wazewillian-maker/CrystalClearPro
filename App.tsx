@@ -589,12 +589,19 @@ function AppContent() {
     }
   }
 
-  async function loadFirestoreAgenda(profile: NonNullable<typeof authenticatedUserProfile>) {
+  async function loadFirestoreAgenda(profile: NonNullable<typeof authenticatedUserProfile>, diagnosticTraceId?: string) {
     setAgendaLoading(true);
     setAgendaError("");
 
     try {
+      logSmartAgendaStep(diagnosticTraceId, "Inicio do carregamento da agenda Firestore.", {
+        empresaId: profile.empresaId,
+        perfil: profile.perfil,
+        funcionarioId: profile.funcionarioId,
+      });
+
       if (profile.perfil === "funcionario" && !profile.funcionarioId) {
+        logSmartAgendaStep(diagnosticTraceId, "Agenda Firestore sem funcionarioId operacional. Interface sera limpa.");
         setAgendaItems([]);
         setAgendaError("Funcionario sem vinculo operacional configurado.");
         return;
@@ -607,6 +614,10 @@ function AppContent() {
           : await visitasRepository.listByEmpresa(profile.empresaId);
       let agendaClients = clients;
       let agendaPools = pools;
+
+      logSmartAgendaStep(diagnosticTraceId, "Visitas carregadas para atualizacao da interface.", {
+        totalVisitas: firestoreVisits.length,
+      });
 
       if (profile.perfil === "funcionario") {
         const operationalData = await loadOperationalDataForVisits(firestoreVisits);
@@ -621,8 +632,19 @@ function AppContent() {
         setPools(agendaPools);
       }
 
+      logSmartAgendaStep(diagnosticTraceId, "Antes da atualizacao da interface da agenda.", {
+        totalVisitas: firestoreVisits.length,
+      });
       setAgendaItems(firestoreVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees, agendaPools)));
+      logSmartAgendaStep(diagnosticTraceId, "Depois da atualizacao da interface da agenda.", {
+        totalVisitas: firestoreVisits.length,
+      });
     } catch (error) {
+      logSmartAgendaError(diagnosticTraceId, "Erro ao carregar agenda Firestore.", error, {
+        empresaId: profile.empresaId,
+        perfil: profile.perfil,
+        funcionarioId: profile.funcionarioId,
+      });
       setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar a agenda do Firestore."));
     } finally {
       setAgendaLoading(false);
@@ -1518,7 +1540,15 @@ function AppContent() {
   }
 
   async function handleGenerateSmartAgenda() {
+    const traceId = createSmartAgendaTraceId();
+    logSmartAgendaStep(traceId, "Inicio da geracao da agenda inteligente.", {
+      isTestMode,
+      hasAuthenticatedUser: Boolean(authenticatedUserProfile),
+      canAccessAdmin,
+    });
+
     if (!canAccessAdmin) {
+      logSmartAgendaStep(traceId, "Geracao bloqueada por permissao.", { canAccessAdmin });
       setRestrictedAccessMessage("Acesso restrito ao perfil dono.");
       return;
     }
@@ -1529,30 +1559,80 @@ function AppContent() {
 
     try {
       if (isTestMode || !authenticatedUserProfile) {
-        const generatedAgenda = generateLocalSmartAgendaItems(pools, agendaItems, clients, employees);
+        logSmartAgendaStep(traceId, "Modo teste ou usuario real ausente. Gerando agenda local.", {
+          clientes: clients.length,
+          funcionarios: employees.length,
+          piscinasEncontradas: pools.length,
+          visitasExistentes: agendaItems.length,
+        });
+        const generatedAgenda = generateLocalSmartAgendaItems(pools, agendaItems, clients, employees, traceId);
+        logSmartAgendaDiagnostics(generatedAgenda, traceId);
+        logSmartAgendaStep(traceId, "Antes da atualizacao da interface em modo teste.", {
+          totalAgendaAntes: agendaItems.length,
+          totalAgendaDepois: generatedAgenda.items.length,
+        });
         setAgendaItems(generatedAgenda.items);
+        logSmartAgendaStep(traceId, "Depois da atualizacao da interface em modo teste.", {
+          totalAgendaDepois: generatedAgenda.items.length,
+        });
+        logSmartAgendaStep(traceId, "Antes de exibir mensagem de diagnostico em modo teste.");
         setRestrictedAccessMessage(formatSmartAgendaResultMessage(generatedAgenda));
+        logSmartAgendaStep(traceId, "Depois de exibir mensagem de diagnostico em modo teste.");
         return;
       }
+
+      logSmartAgendaStep(traceId, "Empresa carregada para geracao real.", {
+        empresaId: authenticatedUserProfile.empresaId,
+        uid: authenticatedUserProfile.uid,
+        perfil: authenticatedUserProfile.perfil,
+      });
 
       const [firestorePools, firestoreVisits] = await Promise.all([
         piscinasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
         visitasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
       ]);
+      logSmartAgendaStep(traceId, "Piscinas e visitas existentes carregadas do Firestore.", {
+        piscinasEncontradas: firestorePools.length,
+        piscinasAtivas: firestorePools.filter(isSmartAgendaPoolActive).length,
+        visitasExistentes: firestoreVisits.length,
+      });
+      const removalResult = await removeFuturePendingSmartAgendaVisits(
+        authenticatedUserProfile.empresaId,
+        firestoreVisits,
+        traceId,
+      );
+      const remainingVisits = firestoreVisits.filter((visit) => !removalResult.removedVisitIds.has(visit.id));
+      logSmartAgendaStep(traceId, "Visitas futuras antigas removidas antes do recalculo.", {
+        removidas: removalResult.removedCount,
+        visitasRestantesParaDeduplicacao: remainingVisits.length,
+      });
       const result = await createSmartFirestoreVisits(
         authenticatedUserProfile.empresaId,
         firestorePools,
-        firestoreVisits,
+        remainingVisits,
+        traceId,
       );
+      result.removedCount = removalResult.removedCount;
+      logSmartAgendaDiagnostics(result, traceId);
 
+      logSmartAgendaStep(traceId, "Antes de recarregar clientes para atualizar a interface.", {
+        empresaId: authenticatedUserProfile.empresaId,
+      });
       await loadFirestoreClients(authenticatedUserProfile.empresaId);
-      await loadFirestoreAgenda(authenticatedUserProfile);
+      logSmartAgendaStep(traceId, "Depois de recarregar clientes para atualizar a interface.");
+      await loadFirestoreAgenda(authenticatedUserProfile, traceId);
+      logSmartAgendaStep(traceId, "Antes de exibir mensagem final da geracao.");
       setRestrictedAccessMessage(formatSmartAgendaResultMessage(result));
+      logSmartAgendaStep(traceId, "Depois de exibir mensagem final da geracao.");
     } catch (error) {
+      logSmartAgendaError(traceId, "Erro durante a geracao da agenda inteligente.", error, {
+        empresaId: authenticatedUserProfile?.empresaId,
+      });
       const message = getFirestoreFriendlyError(error, "Nao foi possivel gerar a agenda inteligente.");
       setAgendaError(message);
       setRestrictedAccessMessage(message);
     } finally {
+      logSmartAgendaStep(traceId, "Finalizando geracao da agenda inteligente. Loading sera desligado.");
       setSmartAgendaLoading(false);
     }
   }
@@ -1936,56 +2016,163 @@ type SmartAgendaGenerationResult = {
   activePools: number;
   createdCount: number;
   ignoredPools: SmartAgendaIgnoredPool[];
+  removedCount: number;
   totalPools: number;
 };
 
-async function createSmartFirestoreVisits(empresaId: string, currentPools: Piscina[], existingVisits: Visita[]) {
+async function removeFuturePendingSmartAgendaVisits(
+  empresaId: string,
+  existingVisits: Visita[],
+  diagnosticTraceId?: string,
+) {
+  const today = startOfDate(new Date());
+  const end = addDaysToDate(today, 29);
+  const visitsToRemove = existingVisits.filter((visit) =>
+    shouldRemoveForSmartAgendaRecalculation(visit, empresaId, today, end),
+  );
+  const removedVisitIds = new Set<string>();
+
+  logSmartAgendaStep(diagnosticTraceId, "Inicio da limpeza de visitas futuras pendentes da agenda inteligente.", {
+    empresaId,
+    fimJanela: formatDateLabel(end),
+    inicioJanela: formatDateLabel(today),
+    visitasCandidatas: existingVisits.length,
+    visitasParaRemover: visitsToRemove.length,
+  });
+
+  for (const visit of visitsToRemove) {
+    try {
+      logSmartAgendaStep(diagnosticTraceId, "Antes de remover visita antiga da agenda inteligente.", {
+        data: visit.data,
+        origem: visit.origem,
+        piscinaId: visit.piscinaId,
+        status: visit.status,
+        visitaId: visit.id,
+      });
+      await visitasRepository.delete(visit.id);
+      removedVisitIds.add(visit.id);
+      logSmartAgendaStep(diagnosticTraceId, "Depois de remover visita antiga da agenda inteligente.", {
+        data: visit.data,
+        piscinaId: visit.piscinaId,
+        visitaId: visit.id,
+      });
+    } catch (error) {
+      logSmartAgendaError(diagnosticTraceId, "Erro ao remover visita antiga da agenda inteligente.", error, {
+        data: visit.data,
+        empresaId: visit.empresaId,
+        piscinaId: visit.piscinaId,
+        visitaId: visit.id,
+      });
+      throw error;
+    }
+  }
+
+  return {
+    removedCount: removedVisitIds.size,
+    removedVisitIds,
+  };
+}
+
+async function createSmartFirestoreVisits(
+  empresaId: string,
+  currentPools: Piscina[],
+  existingVisits: Visita[],
+  diagnosticTraceId?: string,
+) {
   const existingKeys = new Set(existingVisits.map((visit) => getVisitDedupKey(visit.empresaId, visit.piscinaId, visit.data)));
   const result: SmartAgendaGenerationResult = {
     activePools: 0,
     createdCount: 0,
     ignoredPools: [],
+    removedCount: 0,
     totalPools: currentPools.length,
   };
 
+  logSmartAgendaStep(diagnosticTraceId, "Inicio da criacao de visitas no Firestore.", {
+    empresaId,
+    piscinasEncontradas: currentPools.length,
+    piscinasAtivas: currentPools.filter(isSmartAgendaPoolActive).length,
+    visitasExistentes: existingVisits.length,
+  });
+
   for (const pool of currentPools) {
-    const analysis = analyzePoolForSmartAgenda(pool);
+    let currentVisitDate = "";
 
-    if (!analysis.active) {
-      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
-      continue;
-    }
+    try {
+      const analysis = analyzePoolForSmartAgenda(pool);
+      const poolDiagnostic = getSmartAgendaPoolDiagnostic(analysis.pool);
 
-    result.activePools += 1;
+      logSmartAgendaStep(diagnosticTraceId, "Piscina analisada.", {
+        ...poolDiagnostic,
+        aceita: analysis.active && analysis.reasons.length === 0,
+        datasGeradas: analysis.dates,
+        ignorada: !analysis.active || analysis.reasons.length > 0,
+        motivo: analysis.reasons.length > 0 ? analysis.reasons.join("; ") : "Piscina aceita para geracao.",
+      });
 
-    if (analysis.reasons.length > 0) {
-      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
-      continue;
-    }
-
-    const funcionarioId = getPoolResponsibleId(analysis.pool, existingVisits);
-
-    for (const data of analysis.dates) {
-      const dedupKey = getVisitDedupKey(empresaId, analysis.pool.id, data);
-
-      if (existingKeys.has(dedupKey)) {
+      if (!analysis.active) {
+        result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
         continue;
       }
 
-      await visitasRepository.create({
-        clienteId: analysis.pool.clienteId,
-        data,
-        empresaId,
-        funcionarioId: funcionarioId ?? null,
-        origem: "agenda-inteligente",
-        piscinaId: analysis.pool.id,
-        responsavelNome: funcionarioId ? null : "Sem responsavel",
-        status: "pendente",
+      result.activePools += 1;
+
+      if (analysis.reasons.length > 0) {
+        result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+        continue;
+      }
+
+      const funcionarioId = getPoolResponsibleId(analysis.pool, existingVisits);
+
+      for (const data of analysis.dates) {
+        currentVisitDate = data;
+        const dedupKey = getVisitDedupKey(empresaId, analysis.pool.id, data);
+
+        if (existingKeys.has(dedupKey)) {
+          logSmartAgendaStep(diagnosticTraceId, "Visita duplicada ignorada.", {
+            ...poolDiagnostic,
+            data,
+            dedupKey,
+          });
+          continue;
+        }
+
+        const visitPayload = {
+          clienteId: analysis.pool.clienteId,
+          data,
+          empresaId,
+          funcionarioId: funcionarioId ?? null,
+          origem: "agenda-inteligente" as const,
+          piscinaId: analysis.pool.id,
+          responsavelNome: funcionarioId ? null : "Sem responsavel",
+          status: "pendente" as const,
+        };
+
+        logSmartAgendaStep(diagnosticTraceId, "Antes de criar visita no Firestore.", {
+          ...poolDiagnostic,
+          dedupKey,
+          visita: visitPayload,
+        });
+        const visitId = await visitasRepository.create(visitPayload);
+        logSmartAgendaStep(diagnosticTraceId, "Depois de salvar visita no Firestore.", {
+          ...poolDiagnostic,
+          data,
+          dedupKey,
+          visitId,
+        });
+        existingKeys.add(dedupKey);
+        result.createdCount += 1;
+      }
+    } catch (error) {
+      logSmartAgendaError(diagnosticTraceId, "Erro ao processar piscina na agenda inteligente.", error, {
+        piscina: getSmartAgendaPoolDiagnostic(pool),
+        dataTentada: currentVisitDate,
       });
-      existingKeys.add(dedupKey);
-      result.createdCount += 1;
+      throw error;
     }
   }
+
+  logSmartAgendaStep(diagnosticTraceId, "Fim da criacao de visitas no Firestore.", result);
 
   return result;
 }
@@ -1995,6 +2182,7 @@ function generateLocalSmartAgendaItems(
   currentAgendaItems: AgendaItem[],
   currentClients: Client[],
   currentEmployees: Employee[],
+  diagnosticTraceId?: string,
 ) {
   const existingKeys = new Set(
     currentAgendaItems
@@ -2006,28 +2194,49 @@ function generateLocalSmartAgendaItems(
     activePools: 0,
     createdCount: 0,
     ignoredPools: [],
+    removedCount: 0,
     totalPools: currentPools.length,
   };
 
+  logSmartAgendaStep(diagnosticTraceId, "Inicio da geracao local de visitas.", {
+    piscinasEncontradas: currentPools.length,
+    piscinasAtivas: currentPools.filter(isSmartAgendaPoolActive).length,
+    visitasExistentes: currentAgendaItems.length,
+  });
+
   currentPools.forEach((pool) => {
-    const analysis = analyzePoolForSmartAgenda(pool);
+    try {
+      const analysis = analyzePoolForSmartAgenda(pool);
+      const poolDiagnostic = getSmartAgendaPoolDiagnostic(analysis.pool);
 
-    if (!analysis.active) {
-      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
-      return;
-    }
+      logSmartAgendaStep(diagnosticTraceId, "Piscina analisada em modo teste.", {
+        ...poolDiagnostic,
+        aceita: analysis.active && analysis.reasons.length === 0,
+        datasGeradas: analysis.dates,
+        ignorada: !analysis.active || analysis.reasons.length > 0,
+        motivo: analysis.reasons.length > 0 ? analysis.reasons.join("; ") : "Piscina aceita para geracao.",
+      });
 
-    result.activePools += 1;
+      if (!analysis.active) {
+        result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+        return;
+      }
 
-    if (analysis.reasons.length > 0) {
-      result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
-      return;
-    }
+      result.activePools += 1;
 
-    const client = currentClients.find((currentClient) => currentClient.id === analysis.pool.clienteId);
+      if (analysis.reasons.length > 0) {
+        result.ignoredPools.push({ poolName: analysis.poolName, reasons: analysis.reasons });
+        return;
+      }
+
+      const client = currentClients.find((currentClient) => currentClient.id === analysis.pool.clienteId);
 
       if (!client) {
-      result.ignoredPools.push({ poolName: analysis.poolName, reasons: ["Cliente vinculado nao encontrado no app."] });
+        logSmartAgendaStep(diagnosticTraceId, "Piscina ignorada em modo teste.", {
+          ...poolDiagnostic,
+          motivo: "Cliente vinculado nao encontrado no app.",
+        });
+        result.ignoredPools.push({ poolName: analysis.poolName, reasons: ["Cliente vinculado nao encontrado no app."] });
         return;
       }
 
@@ -2050,9 +2259,19 @@ function generateLocalSmartAgendaItems(
       const dedupKey = getVisitDedupKey("test-mode", analysis.pool.id, data);
 
         if (existingKeys.has(dedupKey)) {
+          logSmartAgendaStep(diagnosticTraceId, "Visita local duplicada ignorada.", {
+            ...poolDiagnostic,
+            data,
+            dedupKey,
+          });
           return;
         }
 
+        logSmartAgendaStep(diagnosticTraceId, "Antes de criar visita local.", {
+          ...poolDiagnostic,
+          data,
+          dedupKey,
+        });
         nextItems.push({
           address: client.address,
           assignedEmployeeId: employee?.id,
@@ -2069,10 +2288,23 @@ function generateLocalSmartAgendaItems(
           status: "pending",
           visitDate: data,
         });
+        logSmartAgendaStep(diagnosticTraceId, "Depois de criar visita local.", {
+          ...poolDiagnostic,
+          data,
+          dedupKey,
+        });
         existingKeys.add(dedupKey);
       result.createdCount += 1;
       });
+    } catch (error) {
+      logSmartAgendaError(diagnosticTraceId, "Erro ao processar piscina em modo teste.", error, {
+        piscina: getSmartAgendaPoolDiagnostic(pool),
+      });
+      throw error;
+    }
     });
+
+  logSmartAgendaStep(diagnosticTraceId, "Fim da geracao local de visitas.", result);
 
   return { ...result, items: nextItems };
 }
@@ -2089,16 +2321,12 @@ function generateSmartVisitDates(pool: Piscina, startDate = new Date(), daysAhea
     }
   }
 
-  if (normalizedPool.planoAtendimento === "semanal") {
+  if (normalizedPool.planoAtendimento === "mensal" || normalizedPool.planoAtendimento === "semanal") {
     dates.push(...generateWeeklyDates(start, end, normalizedPool.diasAtendimento ?? [], 7));
   }
 
   if (normalizedPool.planoAtendimento === "quinzenal") {
     dates.push(...generateWeeklyDates(start, end, normalizedPool.diasAtendimento ?? [], 14));
-  }
-
-  if (normalizedPool.planoAtendimento === "mensal") {
-    dates.push(...generateMonthlyDates(start, end, normalizedPool.diaMensal ?? normalizedPool.diaMesAtendimento));
   }
 
   if (normalizedPool.planoAtendimento === "avulso") {
@@ -2266,12 +2494,8 @@ function isSmartAgendaPoolActive(pool: Piscina) {
 }
 
 function getNoDatesReason(pool: Piscina) {
-  if (pool.planoAtendimento === "semanal" || pool.planoAtendimento === "quinzenal") {
-    return "Plano semanal/quinzenal sem diasAtendimento validos.";
-  }
-
-  if (pool.planoAtendimento === "mensal") {
-    return "Plano mensal sem diaMensal valido nos proximos 30 dias.";
+  if (pool.planoAtendimento === "mensal" || pool.planoAtendimento === "semanal" || pool.planoAtendimento === "quinzenal") {
+    return "Piscina ignorada: selecione os dias de atendimento.";
   }
 
   if (pool.planoAtendimento === "avulso") {
@@ -2295,7 +2519,7 @@ function normalizeTextToken(value: unknown) {
 }
 
 function formatSmartAgendaResultMessage(result: SmartAgendaGenerationResult) {
-  const baseMessage = `Agenda gerada: ${result.createdCount} visita(s) criada(s), ${result.ignoredPools.length} piscina(s) ignorada(s). Encontradas: ${result.totalPools}, ativas: ${result.activePools}.`;
+  const baseMessage = `Agenda atualizada: ${result.createdCount} visita(s) criada(s), ${result.removedCount} visita(s) antiga(s) removida(s). ${result.ignoredPools.length} piscina(s) ignorada(s). Encontradas: ${result.totalPools}, ativas: ${result.activePools}.`;
 
   if (result.ignoredPools.length === 0) {
     return baseMessage;
@@ -2309,6 +2533,62 @@ function formatSmartAgendaResultMessage(result: SmartAgendaGenerationResult) {
   const remainingCount = result.ignoredPools.length > 5 ? ` | +${result.ignoredPools.length - 5} piscina(s) ignorada(s).` : "";
 
   return `${baseMessage} Motivos: ${ignoredDetails}${remainingCount}`;
+}
+
+function logSmartAgendaDiagnostics(result: SmartAgendaGenerationResult, diagnosticTraceId?: string) {
+  logSmartAgendaStep(diagnosticTraceId, "Diagnostico final da Agenda Inteligente.", {
+    piscinasAtivas: result.activePools,
+    piscinasEncontradas: result.totalPools,
+    piscinasIgnoradas: result.ignoredPools.length,
+    motivos: result.ignoredPools,
+    visitasCriadas: result.createdCount,
+  });
+}
+
+function logSmartAgendaStep(diagnosticTraceId: string | undefined, step: string, payload?: unknown) {
+  const prefix = diagnosticTraceId ? `[Agenda Inteligente][${diagnosticTraceId}]` : "[Agenda Inteligente]";
+
+  if (payload === undefined) {
+    console.info(`${prefix} ${step}`);
+    return;
+  }
+
+  console.info(`${prefix} ${step}`, payload);
+}
+
+function logSmartAgendaError(
+  diagnosticTraceId: string | undefined,
+  step: string,
+  error: unknown,
+  context?: Record<string, unknown>,
+) {
+  const prefix = diagnosticTraceId ? `[Agenda Inteligente][${diagnosticTraceId}]` : "[Agenda Inteligente]";
+  const stack = error instanceof Error ? error.stack : undefined;
+
+  console.error(`${prefix} ${step}`, {
+    context,
+    error,
+    message: error instanceof Error ? error.message : safeText(error, "Erro desconhecido"),
+    stack,
+  });
+}
+
+function createSmartAgendaTraceId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getSmartAgendaPoolDiagnostic(pool: Piscina) {
+  return {
+    clienteId: safeText(pool.clienteId, "nao informado"),
+    dataAvulsa: safeOptionalText(pool.dataAvulsa ?? pool.dataAtendimentoAvulso) ?? null,
+    diasAtendimento: Array.isArray(pool.diasAtendimento) ? pool.diasAtendimento : [],
+    empresaId: safeText(pool.empresaId, "nao informado"),
+    frequencia: pool.frequenciaSemanal ?? null,
+    nome: getSmartAgendaPoolName(pool),
+    piscinaId: safeText(pool.id, "nao informado"),
+    plano: pool.planoAtendimento ?? "nao informado",
+    status: safeText((pool as unknown as { status?: unknown }).status, "nao informado"),
+  };
 }
 
 function generateWeeklyDates(start: Date, end: Date, weekDays: WeekDay[], intervalDays: 7 | 14) {
@@ -2362,6 +2642,19 @@ function getPoolResponsibleId(pool: Piscina, existingVisits: Visita[]) {
 
 function getVisitDedupKey(empresaId: string, piscinaId: string, data: string) {
   return `${empresaId}__${piscinaId}__${data}`;
+}
+
+function shouldRemoveForSmartAgendaRecalculation(visit: Visita, empresaId: string, start: Date, end: Date) {
+  const visitDate = parseDateLabel(visit.data);
+
+  return Boolean(
+    visit.empresaId === empresaId &&
+      visit.origem === "agenda-inteligente" &&
+      visit.status === "pendente" &&
+      visitDate &&
+      visitDate >= start &&
+      visitDate <= end,
+  );
 }
 
 function formatDateLabel(date: Date) {

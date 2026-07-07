@@ -4,7 +4,7 @@ import type { WeekDay } from "./client";
 export type PiscinaStatus = "ativa" | "inativa";
 export type PlanoAtendimento = "mensal" | "quinzenal" | "semanal" | "todo_dia" | "avulso";
 export type FrequenciaSemanal = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-export type FrequenciaSemanalEditavel = 1 | 2 | 3 | 4 | 5;
+export type FrequenciaSemanalEditavel = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type Piscina = {
   id: string;
@@ -65,5 +65,5 @@ export const frequenciaSemanalLabels: Record<FrequenciaSemanal, string> = {
   4: "4 vezes na semana",
   5: "5 vezes na semana",
   6: "6 vezes na semana",
-  7: "7 vezes na semana",
+  7: "Todos os dias",
 };

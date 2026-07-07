@@ -18,7 +18,7 @@ import {
 } from "../types/piscina";
 
 const planOptions: PlanoAtendimento[] = ["mensal", "quinzenal", "semanal", "todo_dia", "avulso"];
-const frequencyOptions: FrequenciaSemanalEditavel[] = [1, 2, 3, 4, 5];
+const frequencyOptions: FrequenciaSemanalEditavel[] = [1, 2, 3, 4, 5, 6, 7];
 const weekDayOptions: WeekDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const SAVE_TIMEOUT_MS = 20000;
 
@@ -59,12 +59,6 @@ export function NewPoolScreen({
   const [dueDay, setDueDay] = useState(
     typeof editingPool?.diaVencimento === "number" && Number.isFinite(editingPool.diaVencimento)
       ? String(editingPool.diaVencimento)
-      : "",
-  );
-  const [serviceMonthDay, setServiceMonthDay] = useState(
-    typeof (editingPool?.diaMensal ?? editingPool?.diaMesAtendimento) === "number" &&
-      Number.isFinite(editingPool?.diaMensal ?? editingPool?.diaMesAtendimento)
-      ? String(editingPool?.diaMensal ?? editingPool?.diaMesAtendimento)
       : "",
   );
   const [singleServiceDate, setSingleServiceDate] = useState(editingPool?.dataAvulsa ?? editingPool?.dataAtendimentoAvulso ?? "");
@@ -116,13 +110,13 @@ export function NewPoolScreen({
       return;
     }
 
-    if (plan === "todo_dia" && (nextPlan === "semanal" || nextPlan === "quinzenal")) {
+    if (plan === "todo_dia" && (nextPlan === "mensal" || nextPlan === "semanal" || nextPlan === "quinzenal")) {
       setWeeklyFrequency(1);
       setServiceWeekDays([]);
       return;
     }
 
-    if (nextPlan === "mensal" || nextPlan === "avulso") {
+    if (nextPlan === "avulso") {
       setServiceWeekDays([]);
     }
   }
@@ -130,7 +124,7 @@ export function NewPoolScreen({
   function handleFrequencyChange(nextFrequency: FrequenciaSemanalEditavel) {
     setWeeklyFrequency(nextFrequency);
     setError("");
-    setServiceWeekDays((currentDays) => currentDays.slice(0, nextFrequency));
+    setServiceWeekDays((currentDays) => (nextFrequency === 7 ? weekDayOptions : currentDays.slice(0, nextFrequency)));
   }
 
   async function pickReferencePhoto() {
@@ -182,7 +176,7 @@ export function NewPoolScreen({
       return;
     }
 
-    const needsWeekDays = plan === "semanal" || plan === "quinzenal" || plan === "todo_dia";
+    const needsWeekDays = plan === "mensal" || plan === "semanal" || plan === "quinzenal" || plan === "todo_dia";
     if (needsWeekDays && serviceWeekDays.length !== weeklyFrequency) {
       setError(`Selecione exatamente ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""} de atendimento.`);
       return;
@@ -190,17 +184,6 @@ export function NewPoolScreen({
 
     if (!poolType.trim()) {
       setError("Informe o tipo da piscina.");
-      return;
-    }
-
-    const parsedServiceMonthDay = serviceMonthDay.trim() ? Number(serviceMonthDay) : undefined;
-    const validServiceMonthDay =
-      typeof parsedServiceMonthDay === "number" &&
-      Number.isInteger(parsedServiceMonthDay) &&
-      parsedServiceMonthDay >= 1 &&
-      parsedServiceMonthDay <= 31;
-    if (plan === "mensal" && !validServiceMonthDay) {
-      setError("Informe um dia do mes para o atendimento entre 1 e 31.");
       return;
     }
 
@@ -228,7 +211,7 @@ export function NewPoolScreen({
         observacoes: observations.trim(),
         planoAtendimento: plan,
         dataAvulsa: plan === "avulso" ? singleServiceDate.trim() : undefined,
-        diaMensal: plan === "mensal" ? parsedServiceMonthDay : undefined,
+        diaMensal: undefined,
         frequenciaSemanal: needsWeekDays ? weeklyFrequency : undefined,
         diasAtendimento: needsWeekDays ? serviceWeekDays : [],
         tipo: poolType.trim(),
@@ -387,7 +370,7 @@ export function NewPoolScreen({
           </View>
         </View>
 
-        {(plan === "semanal" || plan === "quinzenal" || plan === "todo_dia") ? (
+        {(plan === "mensal" || plan === "semanal" || plan === "quinzenal" || plan === "todo_dia") ? (
           <View style={styles.card}>
             <Text style={styles.groupTitle}>Frequência</Text>
             <View style={styles.optionGrid}>
@@ -413,11 +396,11 @@ export function NewPoolScreen({
           </View>
         ) : null}
 
-        {(plan === "semanal" || plan === "quinzenal" || plan === "todo_dia") ? (
+        {(plan === "mensal" || plan === "semanal" || plan === "quinzenal" || plan === "todo_dia") ? (
           <View style={styles.card}>
             <Text style={styles.groupTitle}>Dias da semana</Text>
             <Text selectable style={styles.helperText}>
-              {plan === "todo_dia"
+              {plan === "todo_dia" || weeklyFrequency === 7
                 ? "Todos os dias foram selecionados automaticamente."
                 : `Selecione exatamente ${weeklyFrequency} dia${weeklyFrequency > 1 ? "s" : ""}.`}
             </Text>
@@ -427,13 +410,13 @@ export function NewPoolScreen({
                   accessibilityLabel={weekDayLabels[day]}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: serviceWeekDays.includes(day) }}
-                  disabled={plan === "todo_dia"}
+                  disabled={plan === "todo_dia" || weeklyFrequency === 7}
                   key={day}
                   onPress={() => toggleWeekDay(day)}
                   style={({ pressed }) => [
                     styles.planOption,
                     serviceWeekDays.includes(day) && styles.optionSelected,
-                    plan === "todo_dia" && styles.optionDisabled,
+                    (plan === "todo_dia" || weeklyFrequency === 7) && styles.optionDisabled,
                     pressed && styles.optionPressed,
                   ]}
                 >
@@ -441,18 +424,6 @@ export function NewPoolScreen({
                 </Pressable>
               ))}
             </View>
-          </View>
-        ) : null}
-
-        {plan === "mensal" ? (
-          <View style={styles.card}>
-            <FormField
-              keyboardType="number-pad"
-              label="Dia do mês para atendimento"
-              onChangeText={setServiceMonthDay}
-              placeholder="5, 15 ou 30"
-              value={serviceMonthDay}
-            />
           </View>
         ) : null}
 
@@ -515,7 +486,7 @@ function normalizeEditableFrequency(frequency?: number): FrequenciaSemanalEditav
     return 1;
   }
 
-  return Math.min(frequency, 5) as FrequenciaSemanalEditavel;
+  return Math.min(frequency, 7) as FrequenciaSemanalEditavel;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

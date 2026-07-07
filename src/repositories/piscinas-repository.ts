@@ -17,7 +17,10 @@ function limparDadosPiscina<T extends Record<string, unknown>>(obj: T): Partial<
   const planoAtendimento = data.planoAtendimento;
   const hasPlanoAtendimento = typeof planoAtendimento === "string";
   const usesWeekDays =
-    planoAtendimento === "semanal" || planoAtendimento === "quinzenal" || planoAtendimento === "todo_dia";
+    planoAtendimento === "mensal" ||
+    planoAtendimento === "semanal" ||
+    planoAtendimento === "quinzenal" ||
+    planoAtendimento === "todo_dia";
 
   if (hasPlanoAtendimento && planoAtendimento !== "avulso") {
     data.dataAvulsa = null;
@@ -27,7 +30,7 @@ function limparDadosPiscina<T extends Record<string, unknown>>(obj: T): Partial<
     data.dataAvulsa = null;
   }
 
-  if (hasPlanoAtendimento && planoAtendimento !== "mensal") {
+  if (hasPlanoAtendimento) {
     data.diaMensal = null;
     data.diaMesAtendimento = null;
   } else if (data.diaMensal === "") {
