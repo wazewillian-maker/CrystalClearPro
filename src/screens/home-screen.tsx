@@ -39,7 +39,6 @@ type HomeScreenProps = {
   canAccessAdmin: boolean;
   canAccessClients: boolean;
   canManageTeam: boolean;
-  canGenerateSmartAgenda?: boolean;
   canAccessFinance: boolean;
   canViewCommercialData: boolean;
   clients: Client[];
@@ -47,7 +46,6 @@ type HomeScreenProps = {
   dashboardMetrics: DashboardMetric[];
   employeeSummaries: EmployeeSummary[];
   noticeMessage?: string;
-  generatingSmartAgenda?: boolean;
   onOpenClients: () => void;
   onOpenProducts: () => void;
   onOpenAttendance: () => void;
@@ -58,7 +56,6 @@ type HomeScreenProps = {
   onOpenFirebaseDiagnostics: () => void;
   onOpenClientArea: () => void;
   onOpenTeam: () => void;
-  onGenerateSmartAgenda?: () => void;
   onStartAttendance: (agendaItem: AgendaItem) => void;
   onSwitchProfile: () => void;
   onLogout: () => void;
@@ -70,7 +67,6 @@ export function HomeScreen({
   canAccessAdmin,
   canAccessClients,
   canManageTeam,
-  canGenerateSmartAgenda = false,
   canAccessFinance,
   canViewCommercialData,
   clients,
@@ -78,7 +74,6 @@ export function HomeScreen({
   dashboardMetrics,
   employeeSummaries,
   noticeMessage,
-  generatingSmartAgenda = false,
   onOpenClients,
   onOpenProducts,
   onOpenAttendance,
@@ -89,7 +84,6 @@ export function HomeScreen({
   onOpenFirebaseDiagnostics,
   onOpenClientArea,
   onOpenTeam,
-  onGenerateSmartAgenda,
   onStartAttendance,
   onSwitchProfile,
   onLogout,
@@ -102,8 +96,10 @@ export function HomeScreen({
     payments: onOpenFinance,
     products: onOpenProducts,
   };
-  const nextAgendaItem = agendaItems.find((item) => item.status !== "finished");
-  const nextAgendaClient = clients.find((client) => client.name === nextAgendaItem?.clientName);
+  const orderedPendingAgendaItems = sortAgendaItemsByDate(agendaItems.filter((item) => item.status !== "finished"));
+  const todayAgendaItems = orderedPendingAgendaItems.filter(isAgendaItemToday);
+  const nextAgendaItem = orderedPendingAgendaItems[0];
+  const nextAgendaClient = clients.find((client) => client.id === nextAgendaItem?.clientId || client.name === nextAgendaItem?.clientName);
 
   return (
     <View style={styles.root}>
@@ -168,7 +164,7 @@ export function HomeScreen({
                   </Text>
                 ) : null}
                 <Text selectable style={styles.nextPoolDetail}>
-                  Data da visita: {safeText(nextAgendaItem.visitDate, "Hoje")}
+                  Data da visita: {safeText(nextAgendaItem.visitDate ?? nextAgendaItem.data, "Hoje")}
                 </Text>
               </View>
 
@@ -232,13 +228,13 @@ export function HomeScreen({
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Proximas visitas</Text>
-            <Text style={styles.sectionCount}>{agendaItems.length} itens</Text>
+            <Text style={styles.sectionTitle}>Piscinas de hoje</Text>
+            <Text style={styles.sectionCount}>{todayAgendaItems.length} itens</Text>
           </View>
 
           <View style={styles.taskList}>
-            {agendaItems.slice(0, 4).map((item) => {
-              const agendaClient = clients.find((client) => client.name === item.clientName);
+            {todayAgendaItems.slice(0, 4).map((item) => {
+              const agendaClient = clients.find((client) => client.id === item.clientId || client.name === item.clientName);
 
               return (
                 <AppCard key={item.id} style={styles.agendaCard}>
@@ -253,11 +249,11 @@ export function HomeScreen({
                       </Text>
                       {canViewCommercialData && agendaClient?.plan ? (
                         <Text selectable style={styles.agendaDetail}>
-                          Plano: {clientPlanLabels[agendaClient.plan]} - Data: {safeText(item.visitDate, "Hoje")}
+                          Plano: {clientPlanLabels[agendaClient.plan]} - Data: {safeText(item.visitDate ?? item.data, "Hoje")}
                         </Text>
                       ) : (
                         <Text selectable style={styles.agendaDetail}>
-                          Data: {safeText(item.visitDate, "Hoje")}
+                          Data: {safeText(item.visitDate ?? item.data, "Hoje")}
                         </Text>
                       )}
                     </View>
@@ -292,16 +288,6 @@ export function HomeScreen({
               title="Atendimento"
             />
             <PrimaryButton icon=">" onPress={onOpenAgenda} style={styles.headerButton} title="Agenda" />
-            {canGenerateSmartAgenda && onGenerateSmartAgenda ? (
-              <PrimaryButton
-                icon="+"
-                loading={generatingSmartAgenda}
-                onPress={onGenerateSmartAgenda}
-                style={styles.smartAgendaButton}
-                title="Gerar agenda"
-                variant="warning"
-              />
-            ) : null}
             <PrimaryButton
               icon=">"
               onPress={onOpenHistory}
@@ -384,6 +370,43 @@ function safeText(value: unknown, fallback = "") {
 
 function getAgendaStatusLabel(status: AgendaItem["status"]) {
   return agendaStatusLabels[status] ?? "Pendente";
+}
+
+function sortAgendaItemsByDate(items: AgendaItem[]) {
+  return [...items].sort((left, right) => {
+    const leftTime = parseAgendaDate(left.data ?? left.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const rightTime = parseAgendaDate(right.data ?? right.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+
+    return safeText(left.clientName).localeCompare(safeText(right.clientName));
+  });
+}
+
+function isAgendaItemToday(item: AgendaItem) {
+  const visitDate = parseAgendaDate(item.data ?? item.visitDate);
+  return Boolean(visitDate && visitDate.getTime() === startOfDay(new Date()).getTime());
+}
+
+function parseAgendaDate(value?: string) {
+  if (!value || value === "Hoje") {
+    return value === "Hoje" ? startOfDay(new Date()) : null;
+  }
+
+  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+  if (brDate) {
+    return startOfDay(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 const styles = StyleSheet.create({
@@ -632,12 +655,6 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins",
     fontSize: 22,
     fontWeight: "900",
-  },
-  smartAgendaButton: {
-    alignSelf: "flex-start",
-    height: 44,
-    paddingHorizontal: 18,
-    width: 168,
   },
   subtitle: {
     color: colors.textSecondary,

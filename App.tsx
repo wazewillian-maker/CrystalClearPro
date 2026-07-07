@@ -26,6 +26,7 @@ import { funcionariosRepository } from "./src/repositories/funcionarios-reposito
 import { piscinasRepository } from "./src/repositories/piscinas-repository";
 import { visitasRepository } from "./src/repositories/visitas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
+import { agendaService } from "./src/services/agenda-service";
 import { storageService } from "./src/services/storage-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
@@ -177,7 +178,6 @@ function AppContent() {
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
   const [agendaError, setAgendaError] = useState("");
   const [agendaLoading, setAgendaLoading] = useState(false);
-  const [smartAgendaLoading, setSmartAgendaLoading] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatuses>({});
   const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
@@ -745,6 +745,9 @@ function AppContent() {
           valorMensal: clientData.valorMensal,
         };
 
+        await refreshFutureSmartAgendaForPool(authenticatedUserProfile.empresaId, newPool).catch((error: unknown) => {
+          setAgendaError(getFirestoreFriendlyError(error, "Cliente salvo, mas nao foi possivel atualizar as visitas futuras."));
+        });
         setClients((currentClients) => [newClient, ...currentClients]);
         setPools((currentPools) => [newPool, ...currentPools]);
         showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
@@ -921,16 +924,18 @@ function AppContent() {
           ...photoFields,
           fotoReferenciaUrl: photoFields?.fotoReferenciaUrl ?? initialPhotoData.fotoReferenciaUrl ?? "",
         };
+        const savedPool: Piscina = {
+          ...savedPoolData,
+          empresaId: authenticatedUserProfile.empresaId,
+          id: piscinaId,
+          status: "ativa",
+        };
 
-        setPools((currentPools) => [
-          {
-            ...savedPoolData,
-            empresaId: authenticatedUserProfile.empresaId,
-            id: piscinaId,
-            status: "ativa",
-          },
-          ...currentPools,
-        ]);
+        await refreshFutureSmartAgendaForPool(authenticatedUserProfile.empresaId, savedPool).catch((error: unknown) => {
+          setAgendaError(getFirestoreFriendlyError(error, "Piscina salva, mas nao foi possivel atualizar as visitas futuras."));
+        });
+
+        setPools((currentPools) => [savedPool, ...currentPools]);
         setSelectedClientId(poolData.clienteId);
         showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         setCurrentScreen("client-detail");
@@ -1082,12 +1087,9 @@ function AppContent() {
 
     if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
       try {
-        const linkedVisits = await visitasRepository.listByPiscina(authenticatedUserProfile.empresaId, poolId);
         await Promise.all([
+          agendaService.removeFuturePendingVisitsForPool(authenticatedUserProfile.empresaId, poolId),
           piscinasRepository.delete(poolId),
-          ...linkedVisits
-            .filter((visit) => visit.status !== "concluida")
-            .map((visit) => visitasRepository.delete(visit.id)),
         ]);
 
         if (pool.fotoReferenciaPath) {
@@ -1232,6 +1234,26 @@ function AppContent() {
             piscinaId,
             referencePhotoUri: photoFields?.fotoReferenciaUrl ?? initialReferencePhotoUrl,
           };
+          await refreshFutureSmartAgendaForPool(authenticatedUserProfile.empresaId, {
+            clienteId: selectedClientId,
+            diaVencimento: clientData.diaVencimento,
+            empresaId: authenticatedUserProfile.empresaId,
+            fotoReferenciaPath: photoFields?.fotoReferenciaPath,
+            fotoReferenciaUrl: clientData.referencePhotoUri ?? "",
+            id: piscinaId,
+            litros: clientData.liters,
+            nome: clientData.poolName?.trim() || "Piscina principal",
+            observacoes: clientData.poolNotes ?? "",
+            planoAtendimento: mapClientPlanToPlanoAtendimento(clientData.plan),
+            dataAvulsa: clientData.dataAtendimentoAvulso ?? "",
+            diaMensal: clientData.diaMesAtendimento,
+            diasAtendimento: clientData.diasAtendimento ?? [],
+            status: "ativa",
+            tipo: clientData.poolType,
+            valorMensal: clientData.valorMensal,
+          }).catch((error: unknown) => {
+            setAgendaError(getFirestoreFriendlyError(error, "Cliente salvo, mas nao foi possivel atualizar as visitas futuras."));
+          });
           showPoolPhotoUploadWarning(uploadedPhoto.warningMessage);
         }
       } catch (error) {
@@ -1539,126 +1561,8 @@ function AppContent() {
     });
   }
 
-  async function handleGenerateSmartAgenda() {
-    const traceId = createSmartAgendaTraceId();
-    logSmartAgendaStep(traceId, "Inicio da geracao da agenda inteligente.", {
-      isTestMode,
-      hasAuthenticatedUser: Boolean(authenticatedUserProfile),
-      canAccessAdmin,
-    });
-
-    if (!canAccessAdmin) {
-      logSmartAgendaStep(traceId, "Geracao bloqueada por permissao.", { canAccessAdmin });
-      setRestrictedAccessMessage("Acesso restrito ao perfil dono.");
-      return;
-    }
-
-    setSmartAgendaLoading(true);
-    setAgendaError("");
-    setRestrictedAccessMessage("");
-
-    try {
-      if (isTestMode || !authenticatedUserProfile) {
-        logSmartAgendaStep(traceId, "Modo teste ou usuario real ausente. Gerando agenda local.", {
-          clientes: clients.length,
-          funcionarios: employees.length,
-          piscinasEncontradas: pools.length,
-          visitasExistentes: agendaItems.length,
-        });
-        const generatedAgenda = generateLocalSmartAgendaItems(pools, agendaItems, clients, employees, traceId);
-        logSmartAgendaDiagnostics(generatedAgenda, traceId);
-        logSmartAgendaStep(traceId, "Antes da atualizacao da interface em modo teste.", {
-          totalAgendaAntes: agendaItems.length,
-          totalAgendaDepois: generatedAgenda.items.length,
-        });
-        setAgendaItems(generatedAgenda.items);
-        logSmartAgendaStep(traceId, "Depois da atualizacao da interface em modo teste.", {
-          totalAgendaDepois: generatedAgenda.items.length,
-        });
-        logSmartAgendaStep(traceId, "Antes de exibir mensagem de diagnostico em modo teste.");
-        setRestrictedAccessMessage(formatSmartAgendaResultMessage(generatedAgenda));
-        logSmartAgendaStep(traceId, "Depois de exibir mensagem de diagnostico em modo teste.");
-        return;
-      }
-
-      logSmartAgendaStep(traceId, "Empresa carregada para geracao real.", {
-        empresaId: authenticatedUserProfile.empresaId,
-        uid: authenticatedUserProfile.uid,
-        perfil: authenticatedUserProfile.perfil,
-      });
-
-      const [firestorePools, firestoreVisits] = await Promise.all([
-        piscinasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
-        visitasRepository.listByEmpresa(authenticatedUserProfile.empresaId),
-      ]);
-      logSmartAgendaStep(traceId, "Piscinas e visitas existentes carregadas do Firestore.", {
-        piscinasEncontradas: firestorePools.length,
-        piscinasAtivas: firestorePools.filter(isSmartAgendaPoolActive).length,
-        visitasExistentes: firestoreVisits.length,
-      });
-      const removalResult = await removeFuturePendingSmartAgendaVisits(
-        authenticatedUserProfile.empresaId,
-        firestoreVisits,
-        traceId,
-      );
-      const remainingVisits = firestoreVisits.filter((visit) => !removalResult.removedVisitIds.has(visit.id));
-      logSmartAgendaStep(traceId, "Visitas futuras antigas removidas antes do recalculo.", {
-        removidas: removalResult.removedCount,
-        visitasRestantesParaDeduplicacao: remainingVisits.length,
-      });
-      const result = await createSmartFirestoreVisits(
-        authenticatedUserProfile.empresaId,
-        firestorePools,
-        remainingVisits,
-        traceId,
-      );
-      result.removedCount = removalResult.removedCount;
-      logSmartAgendaDiagnostics(result, traceId);
-
-      logSmartAgendaStep(traceId, "Antes de recarregar clientes para atualizar a interface.", {
-        empresaId: authenticatedUserProfile.empresaId,
-      });
-      await loadFirestoreClients(authenticatedUserProfile.empresaId);
-      logSmartAgendaStep(traceId, "Depois de recarregar clientes para atualizar a interface.");
-      await loadFirestoreAgenda(authenticatedUserProfile, traceId);
-      logSmartAgendaStep(traceId, "Antes de exibir mensagem final da geracao.");
-      setRestrictedAccessMessage(formatSmartAgendaResultMessage(result));
-      logSmartAgendaStep(traceId, "Depois de exibir mensagem final da geracao.");
-    } catch (error) {
-      logSmartAgendaError(traceId, "Erro durante a geracao da agenda inteligente.", error, {
-        empresaId: authenticatedUserProfile?.empresaId,
-      });
-      const message = getFirestoreFriendlyError(error, "Nao foi possivel gerar a agenda inteligente.");
-      setAgendaError(message);
-      setRestrictedAccessMessage(message);
-    } finally {
-      logSmartAgendaStep(traceId, "Finalizando geracao da agenda inteligente. Loading sera desligado.");
-      setSmartAgendaLoading(false);
-    }
-  }
-
   async function refreshFutureSmartAgendaForPool(empresaId: string, pool: Piscina) {
-    const allVisits = await visitasRepository.listByEmpresa(empresaId);
-    const today = startOfDate(new Date());
-    const deletableVisits = allVisits.filter((visit) => {
-      const visitDate = parseDateLabel(visit.data);
-
-      return (
-        visit.piscinaId === pool.id &&
-        visit.status === "pendente" &&
-        visit.origem === "agenda-inteligente" &&
-        Boolean(visitDate) &&
-        visitDate! >= today
-      );
-    });
-    const deletedIds = new Set(deletableVisits.map((visit) => visit.id));
-
-    await Promise.all(deletableVisits.map((visit) => visitasRepository.delete(visit.id)));
-    await createSmartFirestoreVisits(
-      empresaId,
-      [pool],
-      allVisits.filter((visit) => !deletedIds.has(visit.id)),
-    );
+    await agendaService.refreshFutureVisitsForPool(empresaId, pool);
 
     if (authenticatedUserProfile) {
       await loadFirestoreAgenda(authenticatedUserProfile);
@@ -1789,13 +1693,11 @@ function AppContent() {
           canAccessClients={canAccessClients}
           canAccessFinance={canAccessFinance}
           canAccessAdmin={canAccessAdmin}
-          canGenerateSmartAgenda={canAccessAdmin}
           canViewCommercialData={canViewCommercialData}
           clients={clients}
           completionSummary={completionSummary}
           dashboardMetrics={visibleDashboardMetrics}
           employeeSummaries={activeRole === "owner" ? employeeSummaries : []}
-          generatingSmartAgenda={smartAgendaLoading}
           canManageTeam={canAccessAdmin}
           noticeMessage={restrictedAccessMessage}
           onOpenClients={() => openScreenWithPermission("clients", canAccessClients)}
@@ -1808,7 +1710,6 @@ function AppContent() {
           onOpenClientArea={() => setCurrentScreen("client-area")}
           onOpenTeam={() => openScreenWithPermission("admin", canAccessAdmin)}
           onOpenAdmin={() => openScreenWithPermission("admin", canAccessAdmin)}
-          onGenerateSmartAgenda={handleGenerateSmartAgenda}
           onStartAttendance={handleStartAgendaAttendance}
           onSwitchProfile={handleSwitchProfile}
           onLogout={handleSwitchProfile}
@@ -2854,7 +2755,7 @@ function mapFirestoreVisitToAgendaItem(
     neighborhood: safeText(client?.neighborhood, "Bairro nao informado"),
     origem: mapVisitaOrigemToAgendaOrigem(visit.origem),
     piscinaId: visit.piscinaId,
-    poolName: safeOptionalText(pool?.nome ?? client?.poolName),
+    poolName: safeText(pool?.nome ?? client?.poolName, "Piscina nao encontrada"),
     status: mapVisitaStatusToAgendaStatus(visit.status),
     visitDate: safeText(visit.data),
   };

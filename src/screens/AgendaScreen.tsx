@@ -15,7 +15,7 @@ import { employeeRoleLabels, type Employee } from "../types/employee";
 
 const statusOptions: AgendaStatus[] = ["pending", "in-progress", "finished"];
 const filterStatusOptions: Array<"all" | AgendaStatus | "late"> = ["all", "pending", "in-progress", "finished", "late"];
-const sectionOptions = ["today", "tomorrow", "week", "late", "unassigned"] as const;
+const sectionOptions = ["today", "tomorrow", "week", "late"] as const;
 
 type AgendaSectionId = (typeof sectionOptions)[number];
 type AgendaStatusFilter = (typeof filterStatusOptions)[number];
@@ -132,7 +132,7 @@ export function AgendaScreen({
               <Text style={styles.summaryLabel}>Em aberto</Text>
             </View>
             <View style={styles.summaryMetric}>
-              <Text style={styles.summaryNumber}>{sectionCounts.unassigned}</Text>
+              <Text style={styles.summaryNumber}>{countUnassigned(orderedItems)}</Text>
               <Text style={styles.summaryLabel}>Sem resp.</Text>
             </View>
           </View>
@@ -312,7 +312,7 @@ export function AgendaScreen({
                         {safeText(item.clientName, "Cliente nao encontrado")}
                       </Text>
                       <Text selectable style={styles.poolName}>
-                        {safeText(item.poolName, "Piscina principal")}
+                        {safeText(item.poolName, "Piscina nao encontrada")}
                       </Text>
                       <Text selectable style={styles.neighborhood}>
                         {safeText(item.neighborhood, "Bairro nao informado")}
@@ -512,10 +512,6 @@ function emptySectionCounts(): Record<AgendaSectionId, number> {
 }
 
 function isItemInSection(item: AgendaItem, section: AgendaSectionId) {
-  if (section === "unassigned") {
-    return !hasResponsible(item);
-  }
-
   const visitDate = parseAgendaDate(item.data ?? item.visitDate);
   const today = startOfDay(new Date());
   const tomorrow = addDays(today, 1);
@@ -599,6 +595,10 @@ function hasResponsible(item: AgendaItem) {
   return Boolean(item.assignedEmployeeId || item.funcionarioId || safeText(item.assignedEmployeeName));
 }
 
+function countUnassigned(items: AgendaItem[]) {
+  return items.filter((item) => !hasResponsible(item)).length;
+}
+
 function safeText(value: unknown, fallback = "") {
   if (value === null || value === undefined) {
     return fallback;
@@ -656,7 +656,6 @@ const sectionLabels: Record<AgendaSectionId, string> = {
   late: "Atrasadas",
   today: "Hoje",
   tomorrow: "Amanha",
-  unassigned: "Sem responsavel",
   week: "Esta semana",
 };
 
