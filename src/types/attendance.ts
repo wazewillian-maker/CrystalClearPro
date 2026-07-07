@@ -1,5 +1,19 @@
 import type { MissingProductItem } from "./product-request";
 
+export type AttendanceProductUsed = {
+  id: string;
+  product: string;
+  quantity: string;
+  unit: string;
+};
+
+export type AttendanceWaterParameters = {
+  alkalinity?: string;
+  chlorine?: string;
+  ph?: string;
+  temperature?: string;
+};
+
 export type AttendanceRecord = {
   id: string;
   clienteId?: string;
@@ -14,6 +28,10 @@ export type AttendanceRecord = {
   completedItems: string[];
   ph?: string;
   chlorine?: string;
+  alkalinity?: string;
+  temperature?: string;
+  waterParameters?: AttendanceWaterParameters;
+  productsUsedItems?: AttendanceProductUsed[];
   productsUsed: string;
   observations: string;
   missingProducts: MissingProductItem[];

@@ -2,18 +2,35 @@ import type { Timestamp } from "firebase/firestore";
 
 export type AtendimentoChecklist = {
   aspiracao: boolean;
-  escovacaoBordas: boolean;
-  limpezaPreFiltro: boolean;
+  completarNivelAgua: boolean;
+  conferirEquipamentos: boolean;
+  escovarParedes: boolean;
+  limparBorda: boolean;
+  limparCestos: boolean;
   medicaoPh: boolean;
   medicaoCloro: boolean;
-  aplicacaoProduto: boolean;
-  lavagemFiltro: boolean;
+  retrolavarFiltro: boolean;
+  verificarCasaMaquinas: boolean;
+  verificarVazamentos: boolean;
 };
 
-export type ProdutoFaltandoAtendimento = {
+export type ProdutoAtendimento = {
+  produto: string;
+  quantidade: string;
+  unidade?: string;
+};
+
+export type ProdutoNecessarioAtendimento = {
   produto: string;
   quantidade: string;
   observacao?: string;
+};
+
+export type ParametrosAguaAtendimento = {
+  alcalinidade?: string;
+  cloro?: string;
+  ph?: string;
+  temperatura?: string;
 };
 
 export type Atendimento = {
@@ -28,11 +45,16 @@ export type Atendimento = {
   checklist: AtendimentoChecklist;
   ph?: string;
   cloro?: string;
+  parametrosAgua?: ParametrosAguaAtendimento;
   produtosUtilizados?: string;
+  produtosUtilizadosLista?: ProdutoAtendimento[];
   observacoes?: string;
   fotoAntesUrl?: string;
   fotoDepoisUrl?: string;
-  produtosFaltando?: ProdutoFaltandoAtendimento[];
+  fotoAntesPlaceholder?: string;
+  fotoDepoisPlaceholder?: string;
+  produtosFaltando?: ProdutoNecessarioAtendimento[];
+  produtosNecessarios?: ProdutoNecessarioAtendimento[];
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
 };

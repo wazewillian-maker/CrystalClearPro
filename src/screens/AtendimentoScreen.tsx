@@ -1,22 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  Image,
-  KeyboardAvoidingView,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import * as ImagePicker from "expo-image-picker";
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
-import type { AttendanceRecord } from "../types/attendance";
-import { clientPlanLabels, type Client } from "../types/client";
+import type { AttendanceProductUsed, AttendanceRecord } from "../types/attendance";
+import type { Client } from "../types/client";
 import type { MissingProductItem } from "../types/product-request";
 
 type ChecklistItem = {
@@ -25,64 +15,88 @@ type ChecklistItem = {
 };
 
 const checklistItems: ChecklistItem[] = [
-  { id: "vacuumed", label: "Aspiracao" },
-  { id: "brushed-edges", label: "Escovacao das bordas" },
-  { id: "cleaned-prefilter", label: "Limpeza do pre-filtro" },
-  { id: "measured-ph", label: "Medicao de pH" },
-  { id: "measured-chlorine", label: "Medicao de cloro" },
-  { id: "applied-product", label: "Aplicacao de produto" },
-  { id: "washed-filter", label: "Lavagem do filtro" },
+  { id: "measured-ph", label: "Medir pH" },
+  { id: "measured-chlorine", label: "Medir Cloro" },
+  { id: "vacuumed", label: "Aspirar piscina" },
+  { id: "brushed-walls", label: "Escovar paredes" },
+  { id: "cleaned-edge", label: "Limpar borda" },
+  { id: "cleaned-baskets", label: "Limpar cestos" },
+  { id: "backwashed-filter", label: "Retrolavar filtro" },
+  { id: "completed-water-level", label: "Completar nivel da agua (quando necessario)" },
+  { id: "checked-machine-room", label: "Verificar casa de maquinas" },
+  { id: "checked-leaks", label: "Verificar vazamentos" },
+  { id: "checked-equipment", label: "Conferir equipamentos" },
 ];
 
 type AtendimentoScreenProps = {
   canViewCommercialData?: boolean;
   clients?: Client[];
+  initialAddress?: string;
   initialAttendanceDate?: string;
-  onBack: () => void;
-  onSaveAttendance: (attendance: AttendanceRecord) => Promise<void> | void;
+  initialBairro?: string;
   initialClientId?: string;
   initialClientName?: string;
   initialEmpresaId?: string;
   initialPiscinaId?: string;
   initialPoolName?: string;
+  initialPoolNotes?: string;
+  initialReferencePhotoUri?: string;
   initialVisitId?: string;
+  onBack: () => void;
+  onSaveAttendance: (attendance: AttendanceRecord) => Promise<void> | void;
+  onStartAttendance?: () => Promise<void> | void;
   responsibleName?: string;
 };
 
 export function AtendimentoScreen({
   canViewCommercialData = true,
   clients = [],
+  initialAddress,
   initialAttendanceDate,
-  onBack,
-  onSaveAttendance,
+  initialBairro,
   initialClientId,
   initialClientName,
   initialEmpresaId,
   initialPiscinaId,
   initialPoolName,
+  initialPoolNotes,
+  initialReferencePhotoUri,
   initialVisitId,
+  onBack,
+  onSaveAttendance,
+  onStartAttendance,
   responsibleName,
 }: AtendimentoScreenProps) {
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
   const [attendanceDate, setAttendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
+  const [started, setStarted] = useState(!initialVisitId);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
-  const [productsUsed, setProductsUsed] = useState("Cloro granulado, clarificante");
   const [ph, setPh] = useState("");
   const [chlorine, setChlorine] = useState("");
+  const [alkalinity, setAlkalinity] = useState("");
+  const [temperature, setTemperature] = useState("");
+  const [usedProduct, setUsedProduct] = useState("");
+  const [usedQuantity, setUsedQuantity] = useState("");
+  const [usedUnit, setUsedUnit] = useState("");
+  const [productsUsedItems, setProductsUsedItems] = useState<AttendanceProductUsed[]>([]);
+  const [neededProduct, setNeededProduct] = useState("");
+  const [neededQuantity, setNeededQuantity] = useState("");
+  const [neededObservation, setNeededObservation] = useState("");
+  const [neededProducts, setNeededProducts] = useState<MissingProductItem[]>([]);
   const [observations, setObservations] = useState("");
-  const [missingProduct, setMissingProduct] = useState("");
-  const [missingQuantity, setMissingQuantity] = useState("");
-  const [missingObservation, setMissingObservation] = useState("");
-  const [missingProducts, setMissingProducts] = useState<MissingProductItem[]>([]);
-  const [beforePhotoUri, setBeforePhotoUri] = useState("");
-  const [afterPhotoUri, setAfterPhotoUri] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
   const selectedClient = clients.find((client) => client.id === initialClientId || client.name === clientName);
   const lockedAgendaVisit = Boolean(initialVisitId);
+  const referencePhotoUri = initialReferencePhotoUri ?? selectedClient?.referencePhotoUri;
+  const address = initialAddress ?? selectedClient?.address ?? "Endereco nao informado";
+  const neighborhood = initialBairro ?? selectedClient?.neighborhood ?? "Bairro nao informado";
+  const poolName = initialPoolName ?? selectedClient?.poolName ?? "Piscina nao encontrada";
+  const poolNotes = initialPoolNotes || selectedClient?.poolNotes || "Sem observacoes da piscina.";
 
   useEffect(() => {
     return () => {
@@ -92,84 +106,92 @@ export function AtendimentoScreen({
     };
   }, []);
 
+  async function startAttendance() {
+    setError("");
+    setSuccessMessage("");
+    setStarting(true);
+
+    try {
+      await onStartAttendance?.();
+      setStarted(true);
+      setSuccessMessage("Atendimento iniciado.");
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Nao foi possivel iniciar o atendimento.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
   function toggleChecklistItem(itemId: string) {
     setSuccessMessage("");
-    setCompletedItems((currentItems) => {
-      if (currentItems.includes(itemId)) {
-        return currentItems.filter((currentItem) => currentItem !== itemId);
-      }
-
-      return [...currentItems, itemId];
-    });
+    setCompletedItems((currentItems) =>
+      currentItems.includes(itemId)
+        ? currentItems.filter((currentItem) => currentItem !== itemId)
+        : [...currentItems, itemId],
+    );
   }
 
-  async function pickPhoto(photoType: "before" | "after") {
-    setError("");
+  function addUsedProduct() {
     setSuccessMessage("");
 
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permissionResult.granted) {
-      setError("Permita o acesso as imagens para adicionar a foto do atendimento.");
-      return;
-    }
-
-    const pickerResult = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: false,
-      mediaTypes: ["images"],
-      quality: 1,
-    });
-
-    if (pickerResult.canceled) {
-      return;
-    }
-
-    const selectedPhotoUri = pickerResult.assets[0]?.uri;
-
-    if (!selectedPhotoUri) {
-      setError("Nao foi possivel carregar a imagem selecionada.");
-      return;
-    }
-
-    if (photoType === "before") {
-      setBeforePhotoUri(selectedPhotoUri);
-      return;
-    }
-
-    setAfterPhotoUri(selectedPhotoUri);
-  }
-
-  function addMissingProduct() {
-    setSuccessMessage("");
-
-    if (!missingProduct.trim() || !missingQuantity.trim()) {
-      setError("Preencha o produto/item faltando e a quantidade.");
+    if (!usedProduct.trim() || !usedQuantity.trim()) {
+      setError("Preencha o produto utilizado e a quantidade.");
       return;
     }
 
     setError("");
-    setMissingProducts((currentProducts) => [
+    setProductsUsedItems((currentItems) => [
+      ...currentItems,
+      {
+        id: String(Date.now()),
+        product: usedProduct.trim(),
+        quantity: usedQuantity.trim(),
+        unit: usedUnit.trim(),
+      },
+    ]);
+    setUsedProduct("");
+    setUsedQuantity("");
+    setUsedUnit("");
+  }
+
+  function addNeededProduct() {
+    setSuccessMessage("");
+
+    if (!neededProduct.trim() || !neededQuantity.trim()) {
+      setError("Preencha o produto necessario e a quantidade.");
+      return;
+    }
+
+    setError("");
+    setNeededProducts((currentProducts) => [
       ...currentProducts,
       {
         id: String(Date.now()),
-        observation: missingObservation.trim(),
-        product: missingProduct.trim(),
-        quantity: missingQuantity.trim(),
+        observation: neededObservation.trim(),
+        product: neededProduct.trim(),
+        quantity: neededQuantity.trim(),
       },
     ]);
-    setMissingProduct("");
-    setMissingQuantity("");
-    setMissingObservation("");
+    setNeededProduct("");
+    setNeededQuantity("");
+    setNeededObservation("");
   }
 
-  function removeMissingProduct(productId: string) {
-    setMissingProducts((currentProducts) =>
-      currentProducts.filter((product) => product.id !== productId),
-    );
+  function removeUsedProduct(productId: string) {
+    setProductsUsedItems((currentProducts) => currentProducts.filter((product) => product.id !== productId));
+  }
+
+  function removeNeededProduct(productId: string) {
+    setNeededProducts((currentProducts) => currentProducts.filter((product) => product.id !== productId));
   }
 
   async function finalizeAttendance() {
     setSuccessMessage("");
+
+    if (!started) {
+      setError("Inicie o atendimento antes de finalizar.");
+      return;
+    }
 
     if (!clientName.trim() || !attendanceDate.trim()) {
       setError("Preencha o nome do cliente e a data do atendimento.");
@@ -184,33 +206,40 @@ export function AtendimentoScreen({
         const checklistItem = checklistItems.find((item) => item.id === itemId);
         return checklistItem?.label ?? itemId;
       });
-
+      const productsUsedText = productsUsedItems
+        .map((item) => `${item.product} ${item.quantity}${item.unit ? ` ${item.unit}` : ""}`)
+        .join(", ");
       const finishedAttendance: AttendanceRecord = {
         id: String(Date.now()),
+        afterPhotoUri: "foto-depois-placeholder",
+        alkalinity: alkalinity.trim(),
         attendanceDate: attendanceDate.trim(),
-        beforePhotoUri,
+        beforePhotoUri: "foto-antes-placeholder",
         chlorine: chlorine.trim(),
         clienteId: initialClientId ?? selectedClient?.id,
         clientName: clientName.trim(),
         completedItems: completedLabels,
         empresaId: initialEmpresaId,
-        missingProducts,
+        missingProducts: neededProducts,
         observations: observations.trim(),
         ph: ph.trim(),
         piscinaId: initialPiscinaId ?? selectedClient?.piscinaId,
-        poolName: initialPoolName ?? selectedClient?.poolName,
-        productsUsed: productsUsed.trim(),
+        poolName,
+        productsUsed: productsUsedText,
+        productsUsedItems,
+        temperature: temperature.trim(),
         visitaId: initialVisitId,
-        afterPhotoUri,
+        waterParameters: {
+          alkalinity: alkalinity.trim(),
+          chlorine: chlorine.trim(),
+          ph: ph.trim(),
+          temperature: temperature.trim(),
+        },
       };
 
       await onSaveAttendance(finishedAttendance);
       setAttendanceRecord(finishedAttendance);
-      setSuccessMessage(
-        missingProducts.length > 0
-          ? "Limpeza concluida. Produtos faltando registrados. Voltando para a Home..."
-          : "Limpeza concluida. Voltando para a Home...",
-      );
+      setSuccessMessage("Atendimento finalizado. Voltando para a Home...");
 
       returnHomeTimerRef.current = setTimeout(() => {
         onBack();
@@ -232,19 +261,14 @@ export function AtendimentoScreen({
       >
         <View style={styles.header}>
           <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>Piscina</Text>
+            <Text style={styles.eyebrow}>Fluxo operacional</Text>
             <Text style={styles.title}>Atendimento da Piscina</Text>
             <Text selectable style={styles.subtitle}>
-              Registre a visita, os cuidados realizados e as fotos do atendimento.
+              Confira a piscina, inicie a visita e registre a limpeza completa.
             </Text>
           </View>
 
-          <PrimaryButton
-            onPress={onBack}
-            style={styles.backButton}
-            title="Voltar"
-            variant="danger"
-          />
+          <PrimaryButton onPress={onBack} style={styles.backButton} title="Voltar" variant="danger" />
         </View>
 
         {successMessage ? (
@@ -264,273 +288,152 @@ export function AtendimentoScreen({
         ) : null}
 
         <View style={styles.card}>
-          <PoolReferencePhoto size="banner" uri={selectedClient?.referencePhotoUri} />
+          <PoolReferencePhoto size="banner" uri={referencePhotoUri} />
           <Text selectable style={styles.clientReferenceTitle}>
-            {clientName || "Piscina em atendimento"}
+            {clientName || "Cliente nao encontrado"}
           </Text>
-          <Text selectable style={styles.responsibleText}>
-            Piscina: {initialPoolName ?? selectedClient?.poolName ?? "Piscina nao encontrada"}
-          </Text>
-          <Text selectable style={styles.responsibleText}>
-            Responsavel: {responsibleName ?? "Nao atribuido"}
-          </Text>
-          <Text selectable style={styles.responsibleText}>
-            Data da visita: {attendanceDate}
-          </Text>
-          <Text selectable style={styles.helperText}>
-            {selectedClient
-              ? `${selectedClient.poolType || "Tipo nao informado"} - ${
-                  typeof selectedClient.liters === "number" ? `${selectedClient.liters} litros` : "volume nao informado"
-                } - ${selectedClient.city}${
-                  canViewCommercialData ? ` - Plano: ${clientPlanLabels[selectedClient.plan]}` : ""
-                }`
-              : "Foto de referencia usada apenas para identificar a piscina."}
-          </Text>
-        </View>
-
-        <View style={styles.card}>
-          {clients.length > 0 && !lockedAgendaVisit ? (
-            <View style={styles.field}>
-              <Text style={styles.label}>Selecionar cliente</Text>
-              <View style={styles.clientPicker}>
-                {clients.map((client) => (
-                  <PrimaryButton
-                    key={client.id}
-                    onPress={() => {
-                      setClientName(client.name);
-                      setSuccessMessage("");
-                    }}
-                    style={[
-                      styles.clientPickerButton,
-                      clientName === client.name && styles.clientPickerButtonSelected,
-                    ]}
-                    title={client.name}
-                    variant={clientName === client.name ? "success" : "primary"}
-                  />
-                ))}
-              </View>
-            </View>
+          <InfoLine label="Piscina" value={poolName} />
+          <InfoLine label="Endereco" value={address} />
+          <InfoLine label="Bairro" value={neighborhood} />
+          <InfoLine label="Responsavel" value={responsibleName ?? "Sem responsavel"} />
+          <InfoLine label="Data da visita" value={attendanceDate} />
+          <InfoLine label="Observacoes da piscina" value={poolNotes} />
+          {canViewCommercialData && selectedClient ? (
+            <InfoLine label="Plano" value={selectedClient.plan} />
           ) : null}
-          <FormField
-            label="Nome do cliente"
-            editable={!lockedAgendaVisit}
-            onChangeText={(text) => {
-              setClientName(text);
-              setSuccessMessage("");
-            }}
-            placeholder="Nome do cliente"
-            value={clientName}
-          />
-          <FormField
-            label="Data do atendimento"
-            editable={!lockedAgendaVisit}
-            onChangeText={(text) => {
-              setAttendanceDate(text);
-              setSuccessMessage("");
-            }}
-            placeholder="04/07/2026"
-            value={attendanceDate}
-          />
-        </View>
 
-        <View style={styles.card}>
-          <Text style={styles.groupTitle}>Checklist</Text>
-          <View style={styles.checklist}>
-            {checklistItems.map((item) => {
-              const selected = completedItems.includes(item.id);
-
-              return (
-                <Pressable
-                  accessibilityLabel={item.label}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: selected }}
-                  key={item.id}
-                  onPress={() => toggleChecklistItem(item.id)}
-                  style={({ pressed }) => [
-                    styles.checkItem,
-                    selected && styles.checkItemSelected,
-                    pressed && styles.checkItemPressed,
-                  ]}
-                >
-                  <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-                    <Text style={styles.checkboxText}>{selected ? "x" : ""}</Text>
-                  </View>
-                  <Text style={styles.checkLabel}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.measureGrid}>
-            <FormField
-              label="pH"
-              onChangeText={(text) => {
-                setPh(text);
-                setSuccessMessage("");
-              }}
-              placeholder="Ex: 7.2"
-              value={ph}
+          {!started ? (
+            <PrimaryButton
+              loading={starting}
+              onPress={startAttendance}
+              style={styles.startButton}
+              title="Iniciar atendimento"
+              variant="success"
             />
-            <FormField
-              label="Cloro"
-              onChangeText={(text) => {
-                setChlorine(text);
-                setSuccessMessage("");
-              }}
-              placeholder="Ex: 1.5 ppm"
-              value={chlorine}
-            />
-          </View>
-          <FormField
-            label="Produtos utilizados"
-            multiline
-            onChangeText={(text) => {
-              setProductsUsed(text);
-              setSuccessMessage("");
-            }}
-            placeholder="Produtos e quantidades utilizadas"
-            value={productsUsed}
-          />
-          <FormField
-            label="Observacoes"
-            multiline
-            onChangeText={(text) => {
-              setObservations(text);
-              setSuccessMessage("");
-            }}
-            placeholder="Detalhes importantes do atendimento"
-            value={observations}
-          />
+          ) : (
+            <Text selectable style={styles.startedText}>
+              Atendimento iniciado.
+            </Text>
+          )}
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.groupTitle}>Produtos faltando</Text>
-          <Text selectable style={styles.helperText}>
-            Registre itens que precisam ser aprovados pelo cliente antes de separar para levar.
-          </Text>
-
-          <FormField
-            label="Produto/item"
-            onChangeText={(text) => {
-              setMissingProduct(text);
-              setSuccessMessage("");
-            }}
-            placeholder="Peneira, cloro, mangueira..."
-            value={missingProduct}
-          />
-          <FormField
-            label="Quantidade"
-            onChangeText={(text) => {
-              setMissingQuantity(text);
-              setSuccessMessage("");
-            }}
-            placeholder="1 unidade, 2 kg, 500 ml..."
-            value={missingQuantity}
-          />
-          <FormField
-            label="Observacao opcional"
-            multiline
-            onChangeText={(text) => {
-              setMissingObservation(text);
-              setSuccessMessage("");
-            }}
-            placeholder="Motivo ou detalhe para o cliente"
-            value={missingObservation}
-          />
-
-          <PrimaryButton
-            onPress={addMissingProduct}
-            style={styles.addMissingButton}
-            title="Adicionar produto faltando"
-            variant="success"
-          />
-
-          {missingProducts.length > 0 ? (
-            <View style={styles.missingList}>
-              {missingProducts.map((item) => (
-                <View key={item.id} style={styles.missingItem}>
-                  <View style={styles.missingText}>
-                    <Text selectable style={styles.missingTitle}>
-                      {item.product}
-                    </Text>
-                    <Text selectable style={styles.missingDetail}>
-                      Quantidade: {item.quantity}
-                    </Text>
-                    {item.observation ? (
-                      <Text selectable style={styles.missingDetail}>
-                        {item.observation}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    accessibilityLabel={`Remover ${item.product}`}
-                    accessibilityRole="button"
-                    onPress={() => removeMissingProduct(item.id)}
-                    style={({ pressed }) => [
-                      styles.removeMissingButton,
-                      pressed && styles.removeMissingButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.removeMissingText}>Remover</Text>
-                  </Pressable>
-                </View>
+        {clients.length > 0 && !lockedAgendaVisit ? (
+          <View style={styles.card}>
+            <Text style={styles.groupTitle}>Selecionar cliente</Text>
+            <View style={styles.clientPicker}>
+              {clients.map((client) => (
+                <PrimaryButton
+                  key={client.id}
+                  onPress={() => {
+                    setClientName(client.name);
+                    setSuccessMessage("");
+                  }}
+                  style={[styles.clientPickerButton, clientName === client.name && styles.clientPickerButtonSelected]}
+                  title={client.name}
+                  variant={clientName === client.name ? "success" : "primary"}
+                />
               ))}
             </View>
-          ) : null}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.groupTitle}>Fotos</Text>
-          <View style={styles.photoActions}>
-            <PrimaryButton
-              onPress={() => pickPhoto("before")}
-              style={[styles.photoButton, beforePhotoUri && styles.photoButtonAdded]}
-              title={beforePhotoUri ? "Trocar foto do antes" : "Adicionar foto do antes"}
-              variant={beforePhotoUri ? "success" : "primary"}
-            />
-            {beforePhotoUri ? (
-              <View style={styles.photoPreviewWrapper}>
-                <Image
-                  accessibilityLabel="Previa da foto do antes"
-                  source={{ uri: beforePhotoUri }}
-                  style={styles.photoPreview}
-                />
-                <Text selectable style={styles.photoStatus}>
-                  Foto do antes adicionada
-                </Text>
-              </View>
-            ) : null}
-
-            <PrimaryButton
-              onPress={() => pickPhoto("after")}
-              style={[styles.photoButton, afterPhotoUri && styles.photoButtonAdded]}
-              title={afterPhotoUri ? "Trocar foto do depois" : "Adicionar foto do depois"}
-              variant={afterPhotoUri ? "success" : "primary"}
-            />
-            {afterPhotoUri ? (
-              <View style={styles.photoPreviewWrapper}>
-                <Image
-                  accessibilityLabel="Previa da foto do depois"
-                  source={{ uri: afterPhotoUri }}
-                  style={styles.photoPreview}
-                />
-                <Text selectable style={styles.photoStatus}>
-                  Foto do depois adicionada
-                </Text>
-              </View>
-            ) : null}
           </View>
-        </View>
+        ) : null}
 
-        <PrimaryButton
-          loading={saving}
-          onPress={finalizeAttendance}
-          style={styles.finalizeButton}
-          title="Finalizar atendimento"
-          variant="success"
-        />
+        {started ? (
+          <>
+            <View style={styles.card}>
+              <Text style={styles.groupTitle}>Checklist</Text>
+              <View style={styles.checklist}>
+                {checklistItems.map((item) => {
+                  const selected = completedItems.includes(item.id);
+
+                  return (
+                    <Pressable
+                      accessibilityLabel={item.label}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      key={item.id}
+                      onPress={() => toggleChecklistItem(item.id)}
+                      style={({ pressed }) => [
+                        styles.checkItem,
+                        selected && styles.checkItemSelected,
+                        pressed && styles.checkItemPressed,
+                      ]}
+                    >
+                      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+                        <Text style={styles.checkboxText}>{selected ? "x" : ""}</Text>
+                      </View>
+                      <Text style={styles.checkLabel}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.groupTitle}>Parametros da agua</Text>
+              <View style={styles.measureGrid}>
+                <FormField label="pH" onChangeText={setPh} placeholder="Ex: 7.2" value={ph} />
+                <FormField label="Cloro" onChangeText={setChlorine} placeholder="Ex: 1.5 ppm" value={chlorine} />
+                <FormField label="Alcalinidade (opcional)" onChangeText={setAlkalinity} placeholder="Ex: 90 ppm" value={alkalinity} />
+                <FormField label="Temperatura (opcional)" onChangeText={setTemperature} placeholder="Ex: 27 C" value={temperature} />
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.groupTitle}>Produtos utilizados</Text>
+              <FormField label="Produto" onChangeText={setUsedProduct} placeholder="Cloro" value={usedProduct} />
+              <FormField label="Quantidade" onChangeText={setUsedQuantity} placeholder="2" value={usedQuantity} />
+              <FormField label="Unidade" onChangeText={setUsedUnit} placeholder="kg, g, ml..." value={usedUnit} />
+              <PrimaryButton onPress={addUsedProduct} style={styles.addButton} title="Adicionar produto" variant="success" />
+              <ProductList items={productsUsedItems} onRemove={removeUsedProduct} />
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.groupTitle}>Produtos necessarios</Text>
+              <Text selectable style={styles.helperText}>
+                Estes itens ficam pendentes para aprovacao do Dono. Estoque ainda nao sera movimentado.
+              </Text>
+              <FormField label="Produto" onChangeText={setNeededProduct} placeholder="Barrilha" value={neededProduct} />
+              <FormField label="Quantidade" onChangeText={setNeededQuantity} placeholder="500 g" value={neededQuantity} />
+              <FormField
+                label="Observacao"
+                multiline
+                onChangeText={setNeededObservation}
+                placeholder="Motivo ou detalhe para aprovacao"
+                value={neededObservation}
+              />
+              <PrimaryButton onPress={addNeededProduct} style={styles.addButton} title="Adicionar produto" variant="success" />
+              <NeededProductList items={neededProducts} onRemove={removeNeededProduct} />
+            </View>
+
+            <View style={styles.card}>
+              <FormField
+                label="Observacoes da visita"
+                multiline
+                onChangeText={setObservations}
+                placeholder="Ex: Piscina apresentou inicio de algas."
+                value={observations}
+              />
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.groupTitle}>Fotos</Text>
+              <View style={styles.photoPlaceholder}>
+                <Text selectable style={styles.photoPlaceholderText}>Foto Antes - placeholder</Text>
+              </View>
+              <View style={styles.photoPlaceholder}>
+                <Text selectable style={styles.photoPlaceholderText}>Foto Depois - placeholder</Text>
+              </View>
+            </View>
+
+            <PrimaryButton
+              loading={saving}
+              onPress={finalizeAttendance}
+              style={styles.finalizeButton}
+              title="Finalizar atendimento"
+              variant="success"
+            />
+          </>
+        ) : null}
 
         {attendanceRecord ? (
           <View style={styles.summary}>
@@ -551,20 +454,13 @@ export function AtendimentoScreen({
 type FormFieldProps = {
   editable?: boolean;
   label: string;
-  value: string;
-  placeholder: string;
-  onChangeText: (value: string) => void;
   multiline?: boolean;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  value: string;
 };
 
-function FormField({
-  editable = true,
-  label,
-  value,
-  placeholder,
-  onChangeText,
-  multiline = false,
-}: FormFieldProps) {
+function FormField({ editable = true, label, multiline = false, onChangeText, placeholder, value }: FormFieldProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -582,8 +478,77 @@ function FormField({
   );
 }
 
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoLine}>
+      <Text style={styles.label}>{label}</Text>
+      <Text selectable style={styles.infoValue}>
+        {String(value ?? "")}
+      </Text>
+    </View>
+  );
+}
+
+function ProductList({ items, onRemove }: { items: AttendanceProductUsed[]; onRemove: (id: string) => void }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.list}>
+      {items.map((item) => (
+        <View key={item.id} style={styles.listItem}>
+          <View style={styles.listItemText}>
+            <Text selectable style={styles.listItemTitle}>{item.product}</Text>
+            <Text selectable style={styles.listItemDetail}>
+              {item.quantity} {item.unit}
+            </Text>
+          </View>
+          <RemoveButton label={item.product} onPress={() => onRemove(item.id)} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function NeededProductList({ items, onRemove }: { items: MissingProductItem[]; onRemove: (id: string) => void }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.list}>
+      {items.map((item) => (
+        <View key={item.id} style={styles.listItem}>
+          <View style={styles.listItemText}>
+            <Text selectable style={styles.listItemTitle}>{item.product}</Text>
+            <Text selectable style={styles.listItemDetail}>Quantidade: {item.quantity}</Text>
+            {item.observation ? (
+              <Text selectable style={styles.listItemDetail}>{item.observation}</Text>
+            ) : null}
+          </View>
+          <RemoveButton label={item.product} onPress={() => onRemove(item.id)} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function RemoveButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityLabel={`Remover ${label}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.removeButton, pressed && styles.removeButtonPressed]}
+    >
+      <Text style={styles.removeButtonText}>Remover</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  addMissingButton: {
+  addButton: {
     height: 50,
   },
   backButton: {
@@ -599,21 +564,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 16,
     padding: 16,
-  },
-  clientPicker: {
-    gap: 8,
-  },
-  clientReferenceTitle: {
-    color: colors.white,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  clientPickerButton: {
-    height: 44,
-  },
-  clientPickerButtonSelected: {
-    borderColor: "rgba(255, 255, 255, 0.22)",
-    borderWidth: 1,
   },
   checkItem: {
     alignItems: "center",
@@ -663,6 +613,21 @@ const styles = StyleSheet.create({
   checklist: {
     gap: 10,
   },
+  clientPicker: {
+    gap: 8,
+  },
+  clientPickerButton: {
+    height: 44,
+  },
+  clientPickerButtonSelected: {
+    borderColor: "rgba(255, 255, 255, 0.22)",
+    borderWidth: 1,
+  },
+  clientReferenceTitle: {
+    color: colors.white,
+    fontSize: 22,
+    fontWeight: "900",
+  },
   content: {
     gap: 20,
     padding: 20,
@@ -688,6 +653,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   field: {
+    flexBasis: 180,
+    flexGrow: 1,
     gap: 8,
   },
   finalizeButton: {
@@ -710,6 +677,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  infoLine: {
+    gap: 5,
+  },
+  infoValue: {
+    color: colors.white,
+    fontSize: 16,
+    lineHeight: 22,
+  },
   input: {
     backgroundColor: colors.input,
     borderColor: colors.border,
@@ -729,12 +704,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textTransform: "uppercase",
   },
-  missingDetail: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
+  list: {
+    gap: 10,
   },
-  missingItem: {
+  listItem: {
     alignItems: "flex-start",
     backgroundColor: "rgba(255, 255, 255, 0.06)",
     borderColor: "rgba(255, 255, 255, 0.12)",
@@ -745,14 +718,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 12,
   },
-  missingList: {
-    gap: 10,
+  listItemDetail: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  missingText: {
+  listItemText: {
     flex: 1,
     gap: 4,
   },
-  missingTitle: {
+  listItemTitle: {
     color: colors.white,
     fontSize: 16,
     fontWeight: "900",
@@ -762,46 +737,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
-  photoActions: {
-    gap: 12,
-  },
-  photoButton: {
-    height: 50,
-  },
-  photoButtonAdded: {
-    borderColor: "rgba(255, 255, 255, 0.22)",
-    borderWidth: 1,
-  },
-  photoPreview: {
+  photoPlaceholder: {
+    alignItems: "center",
     backgroundColor: colors.input,
-    borderRadius: 8,
-    height: 180,
-    width: "100%",
-  },
-  photoPreviewWrapper: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    gap: 10,
-    padding: 10,
+    minHeight: 120,
+    justifyContent: "center",
+    padding: 18,
   },
-  photoStatus: {
+  photoPlaceholderText: {
     color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  root: {
-    backgroundColor: colors.background,
-    flex: 1,
-  },
-  responsibleText: {
-    color: colors.primaryLight,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "900",
-    lineHeight: 20,
   },
-  removeMissingButton: {
+  removeButton: {
     backgroundColor: "rgba(231, 76, 60, 0.22)",
     borderColor: "rgba(231, 76, 60, 0.44)",
     borderRadius: 8,
@@ -809,13 +760,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  removeMissingButtonPressed: {
+  removeButtonPressed: {
     opacity: 0.82,
   },
-  removeMissingText: {
+  removeButtonText: {
     color: colors.white,
     fontSize: 13,
     fontWeight: "900",
+  },
+  root: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  startButton: {
+    height: 52,
+  },
+  startedText: {
+    color: colors.success,
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 21,
   },
   subtitle: {
     color: colors.textSecondary,
@@ -854,7 +818,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   textArea: {
-    minHeight: 96,
+    minHeight: 120,
     paddingTop: 14,
   },
   title: {

@@ -192,6 +192,9 @@ function AppContent() {
     ? pools.filter((pool) => pool.clienteId === selectedClientId && pool.status !== "inativa")
     : [];
   const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
+  const selectedAgendaClient = clients.find(
+    (client) => client.id === selectedAgendaItem?.clientId || client.name === selectedAgendaItem?.clientName,
+  );
   const selectedAgendaPool = pools.find((pool) => pool.id === selectedAgendaItem?.piscinaId);
   const authenticatedPerfil = authenticatedUserProfile?.perfil;
   const isOperationalStaffView = isTestMode ? activeRole === "staff" : authenticatedPerfil === "funcionario";
@@ -1361,16 +1364,34 @@ function AppContent() {
           cloro: attendanceWithEmployee.chlorine,
           data: attendanceWithEmployee.attendanceDate,
           empresaId: authenticatedUserProfile.empresaId,
-          fotoAntesUrl: attendanceWithEmployee.beforePhotoUri || undefined,
-          fotoDepoisUrl: attendanceWithEmployee.afterPhotoUri || undefined,
+          fotoAntesPlaceholder: attendanceWithEmployee.beforePhotoUri || "foto-antes-placeholder",
+          fotoDepoisPlaceholder: attendanceWithEmployee.afterPhotoUri || "foto-depois-placeholder",
+          fotoAntesUrl: undefined,
+          fotoDepoisUrl: undefined,
           funcionarioId: attendanceWithEmployee.employeeId ?? activeEmployee?.id,
           observacoes: attendanceWithEmployee.observations,
+          parametrosAgua: {
+            alcalinidade: attendanceWithEmployee.alkalinity,
+            cloro: attendanceWithEmployee.chlorine,
+            ph: attendanceWithEmployee.ph,
+            temperatura: attendanceWithEmployee.temperature,
+          },
           ph: attendanceWithEmployee.ph,
           piscinaId,
+          produtosNecessarios: attendanceWithEmployee.missingProducts.map((item) => ({
+            observacao: item.observation,
+            produto: item.product,
+            quantidade: item.quantity,
+          })),
           produtosFaltando: attendanceWithEmployee.missingProducts.map((item) => ({
             observacao: item.observation,
             produto: item.product,
             quantidade: item.quantity,
+          })),
+          produtosUtilizadosLista: attendanceWithEmployee.productsUsedItems?.map((item) => ({
+            produto: item.product,
+            quantidade: item.quantity,
+            unidade: item.unit,
           })),
           produtosUtilizados: attendanceWithEmployee.productsUsed,
           visitaId: selectedAgendaItem.id,
@@ -1655,8 +1676,33 @@ function AppContent() {
     }
 
     setSelectedAgendaItemId(agendaItem.id);
-    await handleUpdateAgendaStatus(agendaItem.id, "in-progress");
     setCurrentScreen("attendance");
+  }
+
+  async function handleBeginSelectedAgendaAttendance() {
+    if (!selectedAgendaItem) {
+      return;
+    }
+
+    if (!isTestMode && authenticatedUserProfile?.perfil === "funcionario") {
+      const assignedEmployeeId = selectedAgendaItem.assignedEmployeeId ?? selectedAgendaItem.funcionarioId;
+
+      if (!authenticatedUserProfile.funcionarioId || assignedEmployeeId !== authenticatedUserProfile.funcionarioId) {
+        throw new Error("Voce so pode atender visitas atribuidas a voce.");
+      }
+    }
+
+    if (!isTestMode && authenticatedUserProfile) {
+      await visitasRepository.update(selectedAgendaItem.id, {
+        status: "em andamento",
+      });
+    }
+
+    setAgendaItems((currentItems) =>
+      currentItems.map((item) => (item.id === selectedAgendaItem.id ? { ...item, status: "in-progress" } : item)),
+    );
+
+    return;
   }
 
   function handleOpenStandaloneAttendance() {
@@ -1870,14 +1916,19 @@ function AppContent() {
         <AtendimentoScreen
           canViewCommercialData={canViewCommercialData}
           clients={clients}
+          initialAddress={selectedAgendaClient?.address ?? selectedAgendaItem?.address}
           initialAttendanceDate={selectedAgendaItem?.data ?? selectedAgendaItem?.visitDate}
+          initialBairro={selectedAgendaClient?.neighborhood ?? selectedAgendaItem?.neighborhood}
           initialClientId={selectedAgendaItem?.clientId}
           onBack={() => setCurrentScreen("home")}
           onSaveAttendance={handleSaveAttendance}
+          onStartAttendance={handleBeginSelectedAgendaAttendance}
           initialClientName={selectedAgendaItem?.clientName}
           initialEmpresaId={authenticatedUserProfile?.empresaId}
           initialPiscinaId={selectedAgendaItem?.piscinaId}
           initialPoolName={selectedAgendaPool?.nome ?? selectedAgendaItem?.poolName}
+          initialPoolNotes={selectedAgendaPool?.observacoes}
+          initialReferencePhotoUri={selectedAgendaPool?.fotoReferenciaUrl ?? selectedAgendaClient?.referencePhotoUri}
           initialVisitId={selectedAgendaItem?.id}
           responsibleName={selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name}
         />
@@ -2896,19 +2947,17 @@ function mapVisitaOrigemToAgendaOrigem(origem: VisitaOrigem): NonNullable<Agenda
 
 function mapAttendanceChecklist(completedItems: string[]): AtendimentoChecklist {
   return {
-    aplicacaoProduto: completedItems.includes("Aplicacao de produto"),
-    aspiracao: completedItems.includes("Aspiracao"),
-    escovacaoBordas: completedItems.includes("Escovacao das bordas"),
-    lavagemFiltro: completedItems.includes("Lavagem do filtro"),
-    limpezaPreFiltro: completedItems.includes("Limpeza do pre-filtro"),
-    medicaoCloro:
-      completedItems.includes("Medicao de cloro") ||
-      completedItems.includes("Medição de cloro") ||
-      completedItems.includes("MediÃ§Ã£o de cloro"),
-    medicaoPh:
-      completedItems.includes("Medicao de pH") ||
-      completedItems.includes("Medição de pH") ||
-      completedItems.includes("MediÃ§Ã£o de pH"),
+    aspiracao: completedItems.includes("Aspirar piscina") || completedItems.includes("Aspiracao"),
+    completarNivelAgua: completedItems.includes("Completar nivel da agua (quando necessario)"),
+    conferirEquipamentos: completedItems.includes("Conferir equipamentos"),
+    escovarParedes: completedItems.includes("Escovar paredes") || completedItems.includes("Escovacao das bordas"),
+    limparBorda: completedItems.includes("Limpar borda"),
+    limparCestos: completedItems.includes("Limpar cestos"),
+    medicaoCloro: completedItems.includes("Medir Cloro") || completedItems.includes("Medicao de cloro"),
+    medicaoPh: completedItems.includes("Medir pH") || completedItems.includes("Medicao de pH"),
+    retrolavarFiltro: completedItems.includes("Retrolavar filtro") || completedItems.includes("Lavagem do filtro"),
+    verificarCasaMaquinas: completedItems.includes("Verificar casa de maquinas"),
+    verificarVazamentos: completedItems.includes("Verificar vazamentos"),
   };
 }
 
@@ -2921,10 +2970,11 @@ function mapFirestoreAttendanceToAttendanceRecord(
   const pool = currentPools.find((currentPool) => currentPool.id === attendance.piscinaId);
 
   return {
-    afterPhotoUri: attendance.fotoDepoisUrl ?? "",
+    afterPhotoUri: attendance.fotoDepoisUrl ?? attendance.fotoDepoisPlaceholder ?? "",
+    alkalinity: attendance.parametrosAgua?.alcalinidade ?? "",
     attendanceDate: safeText(attendance.data, "Data nao informada"),
-    beforePhotoUri: attendance.fotoAntesUrl ?? "",
-    chlorine: attendance.cloro ?? "",
+    beforePhotoUri: attendance.fotoAntesUrl ?? attendance.fotoAntesPlaceholder ?? "",
+    chlorine: attendance.parametrosAgua?.cloro ?? attendance.cloro ?? "",
     clienteId: attendance.clienteId,
     clientName: safeText(client?.name, "Cliente nao encontrado"),
     completedItems: mapChecklistLabels(attendance.checklist),
@@ -2933,18 +2983,32 @@ function mapFirestoreAttendanceToAttendanceRecord(
     empresaId: attendance.empresaId,
     id: attendance.id,
     missingProducts:
-      attendance.produtosFaltando?.map((item, index) => ({
+      (attendance.produtosNecessarios ?? attendance.produtosFaltando)?.map((item, index) => ({
         id: `${attendance.id}-missing-${index}`,
         observation: item.observacao ?? "",
         product: item.produto,
         quantity: item.quantidade,
       })) ?? [],
     observations: attendance.observacoes ?? "",
-    ph: attendance.ph ?? "",
+    ph: attendance.parametrosAgua?.ph ?? attendance.ph ?? "",
     piscinaId: attendance.piscinaId,
     poolName: safeText(pool?.nome, "Piscina nao encontrada"),
     productsUsed: attendance.produtosUtilizados ?? "",
+    productsUsedItems:
+      attendance.produtosUtilizadosLista?.map((item, index) => ({
+        id: `${attendance.id}-used-${index}`,
+        product: item.produto,
+        quantity: item.quantidade,
+        unit: item.unidade ?? "",
+      })) ?? [],
+    temperature: attendance.parametrosAgua?.temperatura ?? "",
     visitaId: attendance.visitaId,
+    waterParameters: {
+      alkalinity: attendance.parametrosAgua?.alcalinidade ?? "",
+      chlorine: attendance.parametrosAgua?.cloro ?? attendance.cloro ?? "",
+      ph: attendance.parametrosAgua?.ph ?? attendance.ph ?? "",
+      temperature: attendance.parametrosAgua?.temperatura ?? "",
+    },
   };
 }
 
@@ -2952,12 +3016,16 @@ function mapChecklistLabels(checklist: AtendimentoChecklist) {
   const labels: string[] = [];
 
   if (checklist.aspiracao) labels.push("Aspiracao");
-  if (checklist.escovacaoBordas) labels.push("Escovacao das bordas");
-  if (checklist.limpezaPreFiltro) labels.push("Limpeza do pre-filtro");
   if (checklist.medicaoPh) labels.push("Medicao de pH");
   if (checklist.medicaoCloro) labels.push("Medicao de cloro");
-  if (checklist.aplicacaoProduto) labels.push("Aplicacao de produto");
-  if (checklist.lavagemFiltro) labels.push("Lavagem do filtro");
+  if (checklist.escovarParedes) labels.push("Escovar paredes");
+  if (checklist.limparBorda) labels.push("Limpar borda");
+  if (checklist.limparCestos) labels.push("Limpar cestos");
+  if (checklist.retrolavarFiltro) labels.push("Retrolavar filtro");
+  if (checklist.completarNivelAgua) labels.push("Completar nivel da agua");
+  if (checklist.verificarCasaMaquinas) labels.push("Verificar casa de maquinas");
+  if (checklist.verificarVazamentos) labels.push("Verificar vazamentos");
+  if (checklist.conferirEquipamentos) labels.push("Conferir equipamentos");
 
   return labels;
 }

@@ -176,10 +176,12 @@ type PhotoCardProps = {
 };
 
 function PhotoCard({ label, uri }: PhotoCardProps) {
+  const hasRealPhoto = uri && !uri.includes("placeholder");
+
   return (
     <View style={styles.photoCard}>
       <Text style={styles.groupTitle}>{label}</Text>
-      {uri ? (
+      {hasRealPhoto ? (
         <Image accessibilityLabel={label} source={{ uri }} style={styles.photo} />
       ) : (
         <View style={styles.emptyPhoto}>
