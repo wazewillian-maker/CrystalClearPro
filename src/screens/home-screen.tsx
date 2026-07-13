@@ -1,4 +1,3 @@
-import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
@@ -40,6 +39,7 @@ type HomeScreenProps = {
   canAccessClients: boolean;
   canManageTeam: boolean;
   canAccessFinance: boolean;
+  canOpenStandaloneAttendance?: boolean;
   canViewCommercialData: boolean;
   clients: Client[];
   completionSummary: HomeCompletionSummary;
@@ -68,6 +68,7 @@ export function HomeScreen({
   canAccessClients,
   canManageTeam,
   canAccessFinance,
+  canOpenStandaloneAttendance = true,
   canViewCommercialData,
   clients,
   completionSummary,
@@ -285,12 +286,14 @@ export function HomeScreen({
               title="Produtos Pendentes"
               variant="success"
             />
-            <PrimaryButton
-              icon=">"
-              onPress={onOpenAttendance}
-              style={styles.attendanceButton}
-              title="Atendimento"
-            />
+            {canOpenStandaloneAttendance ? (
+              <PrimaryButton
+                icon=">"
+                onPress={onOpenAttendance}
+                style={styles.attendanceButton}
+                title="Atendimento"
+              />
+            ) : null}
             <PrimaryButton icon=">" onPress={onOpenAgenda} style={styles.headerButton} title="Agenda" />
             <PrimaryButton
               icon=">"

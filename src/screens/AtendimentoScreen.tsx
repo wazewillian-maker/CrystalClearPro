@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
@@ -76,7 +76,7 @@ export function AtendimentoScreen({
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalizingRef = useRef(false);
   const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
-  const [attendanceDate, setAttendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
+  const [attendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
   const [started, setStarted] = useState(!initialVisitId);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [ph, setPh] = useState("");

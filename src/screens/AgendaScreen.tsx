@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
@@ -237,25 +237,27 @@ export function AgendaScreen({
             })}
           </View>
 
-          <View style={styles.filterGroup}>
-            <Text style={styles.groupLabel}>Funcionario</Text>
-            <View style={styles.filterChips}>
-              <FilterChip label="Todos" selected={employeeFilter === "all"} onPress={() => setEmployeeFilter("all")} />
-              <FilterChip
-                label="Sem responsavel"
-                selected={employeeFilter === "unassigned"}
-                onPress={() => setEmployeeFilter("unassigned")}
-              />
-              {employees.map((employee) => (
+          {canDistribute ? (
+            <View style={styles.filterGroup}>
+              <Text style={styles.groupLabel}>Funcionario</Text>
+              <View style={styles.filterChips}>
+                <FilterChip label="Todos" selected={employeeFilter === "all"} onPress={() => setEmployeeFilter("all")} />
                 <FilterChip
-                  key={employee.id}
-                  label={safeText(employee.name, "Funcionario")}
-                  selected={employeeFilter === employee.id}
-                  onPress={() => setEmployeeFilter(employee.id)}
+                  label="Sem responsavel"
+                  selected={employeeFilter === "unassigned"}
+                  onPress={() => setEmployeeFilter("unassigned")}
                 />
-              ))}
+                {employees.map((employee) => (
+                  <FilterChip
+                    key={employee.id}
+                    label={safeText(employee.name, "Funcionario")}
+                    selected={employeeFilter === employee.id}
+                    onPress={() => setEmployeeFilter(employee.id)}
+                  />
+                ))}
+              </View>
             </View>
-          </View>
+          ) : null}
 
           <View style={styles.filterGroup}>
             <Text style={styles.groupLabel}>Status</Text>

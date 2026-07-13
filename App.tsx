@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -204,7 +204,7 @@ function AppContent() {
     isTestMode ? activeRole === "owner" : authenticatedPerfil === "dono" || authenticatedPerfil === "socio";
   const canAccessAdmin = isTestMode ? activeRole === "owner" : authenticatedPerfil === "dono";
   const canViewCommercialData = canAccessClients;
-  const isRestrictedEmployee = !isTestMode && authenticatedPerfil === "funcionario";
+  const isEmployeeProfileView = isOperationalStaffView;
   const activeEmployee =
     authenticatedUserProfile?.funcionarioId
       ? employees.find((employee) => employee.id === authenticatedUserProfile.funcionarioId) ?? {
@@ -220,17 +220,21 @@ function AppContent() {
       : employees.find((employee) => employee.status === "active" && employee.role !== "owner") ?? employees[0];
   const visibleAgendaItems =
     isOperationalStaffView && activeEmployee
-      ? agendaItems.filter((item) => item.assignedEmployeeId === activeEmployee.id)
+      ? agendaItems.filter((item) => isAgendaItemAssignedToEmployee(item, activeEmployee.id))
       : agendaItems;
   const visibleAttendances =
     isOperationalStaffView && activeEmployee
-      ? attendances.filter((attendance) => attendance.employeeId === activeEmployee.id)
+      ? attendances.filter((attendance) =>
+          isAttendanceVisibleForEmployee(attendance, visibleAgendaItems, activeEmployee.id),
+        )
       : attendances;
-  const visibleClientNames = new Set(visibleAgendaItems.map((item) => item.clientName));
   const visibleProductRequests =
-    isOperationalStaffView
-      ? productRequests.filter((request) => visibleClientNames.has(request.clientName))
+    isOperationalStaffView && activeEmployee
+      ? productRequests.filter((request) => isProductRequestVisibleForEmployee(request, visibleAgendaItems))
       : productRequests;
+  const canRenderAttendance =
+    !isEmployeeProfileView ||
+    Boolean(selectedAgendaItem && activeEmployee && isAgendaItemAssignedToEmployee(selectedAgendaItem, activeEmployee.id));
   const productsPendingCount = visibleProductRequests.reduce(
     (total, request) =>
       total + request.items.filter((item) => item.status !== "delivered" && item.status !== "rejected").length,
@@ -397,8 +401,8 @@ function AppContent() {
       return;
     }
 
-    void loadFirestoreAttendances(authenticatedUserProfile.empresaId);
-  }, [authLoading, authenticatedUserProfile?.empresaId, isTestMode]);
+    void loadFirestoreAttendances(authenticatedUserProfile);
+  }, [agendaItems, authLoading, authenticatedUserProfile, clients, isTestMode, pools]);
 
   useEffect(() => {
     if (authLoading || currentScreen !== "splash") {
@@ -413,30 +417,44 @@ function AppContent() {
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
 
   useEffect(() => {
+    if (
+      currentScreen === "attendance" &&
+      isEmployeeProfileView &&
+      selectedAgendaItem &&
+      activeEmployee &&
+      !isAgendaItemAssignedToEmployee(selectedAgendaItem, activeEmployee.id)
+    ) {
+      setSelectedAgendaItemId(null);
+      setCurrentScreen("agenda");
+      return;
+    }
+
     if (currentScreen === "attendance" && selectedAgendaItemId && !selectedAgendaItem && !agendaLoading) {
       setSelectedAgendaItemId(null);
       setCurrentScreen("agenda");
     }
-  }, [agendaLoading, currentScreen, selectedAgendaItem, selectedAgendaItemId]);
+  }, [activeEmployee, agendaLoading, currentScreen, isEmployeeProfileView, selectedAgendaItem, selectedAgendaItemId]);
 
   useEffect(() => {
     const restrictedScreens: AppScreen[] = [
       "admin",
       "client-detail",
+      "client-area",
       "clients",
       "edit-client",
       "finance",
+      "firebase-diagnostics",
       "new-client",
       "new-pool",
       "team",
     ];
 
-    if (authLoading || !isRestrictedEmployee || !restrictedScreens.includes(currentScreen)) {
+    if (authLoading || !isEmployeeProfileView || !restrictedScreens.includes(currentScreen)) {
       return;
     }
 
     blockRestrictedEmployeeAccess();
-  }, [authLoading, currentScreen, isRestrictedEmployee]);
+  }, [authLoading, currentScreen, isEmployeeProfileView]);
 
   function blockRestrictedEmployeeAccess() {
     setRestrictedAccessMessage("Acesso restrito ao perfil funcionário.");
@@ -585,10 +603,26 @@ function AppContent() {
     }
   }
 
-  async function loadFirestoreAttendances(empresaId: string) {
+  async function loadFirestoreAttendances(profile: NonNullable<typeof authenticatedUserProfile>) {
     try {
-      const firestoreAttendances = await atendimentoService.listarPorEmpresa(empresaId);
-      setAttendances(firestoreAttendances.map((attendance) => mapFirestoreAttendanceToAttendanceRecord(attendance, clients, pools)));
+      const firestoreAttendances = await atendimentoService.listarPorEmpresa(profile.empresaId);
+      const mappedAttendances = firestoreAttendances.map((attendance) =>
+        mapFirestoreAttendanceToAttendanceRecord(attendance, clients, pools),
+      );
+
+      if (profile.perfil === "funcionario") {
+        const employeeId = profile.funcionarioId;
+        setAttendances(
+          employeeId
+            ? mappedAttendances.filter((attendance) =>
+                isAttendanceVisibleForEmployee(attendance, agendaItems, employeeId),
+              )
+            : [],
+        );
+        return;
+      }
+
+      setAttendances(mappedAttendances);
     } catch (error) {
       setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel carregar o historico de atendimentos."));
     }
@@ -706,6 +740,11 @@ function AppContent() {
   }
 
   async function handleSaveClient(clientData: ClientFormData) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
       try {
         const clienteId = await clientesRepository.create({
@@ -818,6 +857,11 @@ function AppContent() {
   }
 
   async function handleSavePool(poolData: PiscinaFormData) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     const linkedClient = clients.find((client) => client.id === poolData.clienteId);
 
     if (!linkedClient) {
@@ -1073,6 +1117,11 @@ function AppContent() {
   }
 
   function handleOpenClient(clientId: string) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     setSelectedClientId(clientId);
     setCurrentScreen("client-detail");
   }
@@ -1097,6 +1146,11 @@ function AppContent() {
   }
 
   function handleOpenEditPool(poolId: string) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     const pool = pools.find((currentPool) => currentPool.id === poolId);
 
     if (!pool) {
@@ -1109,6 +1163,11 @@ function AppContent() {
   }
 
   async function handleDeletePool(poolId: string) {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     const pool = pools.find((currentPool) => currentPool.id === poolId);
 
     if (!pool) {
@@ -1323,6 +1382,11 @@ function AppContent() {
   }
 
   async function handleDeleteClient() {
+    if (!canAccessClients) {
+      blockRestrictedEmployeeAccess();
+      return;
+    }
+
     if (!selectedClientId) {
       return;
     }
@@ -1347,11 +1411,17 @@ function AppContent() {
     const attendanceWithEmployee: AttendanceRecord = {
       ...attendance,
       completedItems,
-      employeeId: selectedAgendaItem?.assignedEmployeeId ?? activeEmployee?.id,
+      employeeId: selectedAgendaItem ? getAgendaAssignedEmployeeId(selectedAgendaItem) : activeEmployee?.id,
       employeeName: selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name,
       missingProducts,
       productsUsedItems,
     };
+
+    if (isEmployeeProfileView) {
+      if (!selectedAgendaItem || !activeEmployee || !isAgendaItemAssignedToEmployee(selectedAgendaItem, activeEmployee.id)) {
+        throw new Error("Funcionario so pode finalizar visitas atribuidas a ele.");
+      }
+    }
 
     if (!isTestMode && authenticatedUserProfile && selectedAgendaItem) {
       if (authenticatedUserProfile.perfil === "funcionario") {
@@ -1465,6 +1535,13 @@ function AppContent() {
   }
 
   async function handleUpdateAgendaStatus(agendaItemId: string, status: AgendaStatus) {
+    const agendaItem = agendaItems.find((item) => item.id === agendaItemId);
+
+    if (isEmployeeProfileView && (!activeEmployee || !agendaItem || !isAgendaItemAssignedToEmployee(agendaItem, activeEmployee.id))) {
+      setAgendaError("Voce so pode alterar visitas atribuidas a voce.");
+      return;
+    }
+
     if (!isTestMode && authenticatedUserProfile) {
       try {
         await visitasRepository.update(agendaItemId, {
@@ -1482,6 +1559,11 @@ function AppContent() {
   }
 
   async function handleAddAgendaItem(client: Client, visitDate: string) {
+    if (!canAccessAdmin) {
+      setAgendaError("Apenas o dono pode adicionar visitas manualmente.");
+      return;
+    }
+
     const defaultEmployee = activeEmployee ?? employees[0];
     let visitId = String(Date.now());
 
@@ -1528,6 +1610,11 @@ function AppContent() {
   }
 
   async function handleAssignAgendaItem(agendaItemId: string, employeeId: string) {
+    if (!canAccessAdmin) {
+      setAgendaError("Apenas o dono pode distribuir visitas.");
+      return;
+    }
+
     const employee = employees.find((currentEmployee) => currentEmployee.id === employeeId);
 
     if (!employee) {
@@ -1689,13 +1776,9 @@ function AppContent() {
   }
 
   async function handleStartAgendaAttendance(agendaItem: AgendaItem) {
-    if (!isTestMode && authenticatedUserProfile?.perfil === "funcionario") {
-      const assignedEmployeeId = agendaItem.assignedEmployeeId ?? agendaItem.funcionarioId;
-
-      if (!authenticatedUserProfile.funcionarioId || assignedEmployeeId !== authenticatedUserProfile.funcionarioId) {
-        setAgendaError("Voce so pode atender visitas atribuidas a voce.");
-        return;
-      }
+    if (isEmployeeProfileView && (!activeEmployee || !isAgendaItemAssignedToEmployee(agendaItem, activeEmployee.id))) {
+      setAgendaError("Voce so pode atender visitas atribuidas a voce.");
+      return;
     }
 
     setSelectedAgendaItemId(agendaItem.id);
@@ -1707,12 +1790,8 @@ function AppContent() {
       return;
     }
 
-    if (!isTestMode && authenticatedUserProfile?.perfil === "funcionario") {
-      const assignedEmployeeId = selectedAgendaItem.assignedEmployeeId ?? selectedAgendaItem.funcionarioId;
-
-      if (!authenticatedUserProfile.funcionarioId || assignedEmployeeId !== authenticatedUserProfile.funcionarioId) {
-        throw new Error("Voce so pode atender visitas atribuidas a voce.");
-      }
+    if (isEmployeeProfileView && (!activeEmployee || !isAgendaItemAssignedToEmployee(selectedAgendaItem, activeEmployee.id))) {
+      throw new Error("Voce so pode atender visitas atribuidas a voce.");
     }
 
     if (!isTestMode && authenticatedUserProfile) {
@@ -1729,6 +1808,12 @@ function AppContent() {
   }
 
   function handleOpenStandaloneAttendance() {
+    if (isEmployeeProfileView) {
+      setRestrictedAccessMessage("Funcionario deve iniciar o atendimento por uma visita atribuida na agenda.");
+      setCurrentScreen("agenda");
+      return;
+    }
+
     setSelectedAgendaItemId(null);
     setCurrentScreen("attendance");
   }
@@ -1745,6 +1830,15 @@ function AppContent() {
     itemId: string,
     deliveryPhotoUri: string,
   ) {
+    if (
+      isEmployeeProfileView &&
+      !visibleProductRequests.some((request) => request.id === requestId)
+    ) {
+      setRestrictedAccessMessage("Funcionario so pode entregar produtos vinculados as piscinas atribuidas.");
+      setCurrentScreen("products");
+      return;
+    }
+
     setProductRequests((currentRequests) =>
       currentRequests.map((request) =>
         request.id === requestId ? updateRequestItem(request, itemId, "delivered", deliveryPhotoUri) : request,
@@ -1846,6 +1940,7 @@ function AppContent() {
           canAccessClients={canAccessClients}
           canAccessFinance={canAccessFinance}
           canAccessAdmin={canAccessAdmin}
+          canOpenStandaloneAttendance={!isEmployeeProfileView}
           canViewCommercialData={canViewCommercialData}
           clients={clients}
           completionSummary={completionSummary}
@@ -1860,7 +1955,7 @@ function AppContent() {
           onOpenAgenda={() => setCurrentScreen("agenda")}
           onOpenFinance={() => openScreenWithPermission("finance", canAccessFinance)}
           onOpenFirebaseDiagnostics={() => setCurrentScreen("firebase-diagnostics")}
-          onOpenClientArea={() => setCurrentScreen("client-area")}
+          onOpenClientArea={() => openScreenWithPermission("client-area", !isEmployeeProfileView)}
           onOpenTeam={() => openScreenWithPermission("admin", canAccessAdmin)}
           onOpenAdmin={() => openScreenWithPermission("admin", canAccessAdmin)}
           onStartAttendance={handleStartAgendaAttendance}
@@ -1937,7 +2032,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "attendance" ? (
+      {currentScreen === "attendance" && canRenderAttendance ? (
         <AtendimentoScreen
           canViewCommercialData={canViewCommercialData}
           clients={clients}
@@ -1972,7 +2067,7 @@ function AppContent() {
           agendaItems={visibleAgendaItems}
           canViewCommercialData={canViewCommercialData}
           clients={clients}
-          employees={employees.filter((employee) => employee.status === "active")}
+          employees={canAccessAdmin ? employees.filter((employee) => employee.status === "active") : []}
           errorMessage={agendaError}
           loading={agendaLoading}
           onBack={() => setCurrentScreen("home")}
@@ -2023,7 +2118,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "client-area" ? (
+      {currentScreen === "client-area" && !isEmployeeProfileView ? (
         <ClienteAreaScreen
           attendances={attendances}
           backButtonTitle={activeRole === "client" ? "Trocar Perfil" : "Voltar"}
@@ -2036,7 +2131,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "firebase-diagnostics" ? (
+      {currentScreen === "firebase-diagnostics" && canAccessAdmin ? (
         <FirebaseDiagnosticsScreen onBack={() => setCurrentScreen("home")} />
       ) : null}
 
@@ -2866,6 +2961,58 @@ function sanitizePoolReferencePhoto(pool: Piscina): Piscina {
     ...pool,
     fotoReferenciaUrl: getPersistedPhotoUri(pool.fotoReferenciaUrl),
   };
+}
+
+function getAgendaAssignedEmployeeId(item: AgendaItem) {
+  return item.assignedEmployeeId ?? item.funcionarioId;
+}
+
+function isAgendaItemAssignedToEmployee(item: AgendaItem, employeeId: string) {
+  return getAgendaAssignedEmployeeId(item) === employeeId;
+}
+
+function isAttendanceVisibleForEmployee(
+  attendance: AttendanceRecord,
+  visibleAgendaItems: AgendaItem[],
+  employeeId: string,
+) {
+  if (attendance.employeeId === employeeId) {
+    return true;
+  }
+
+  return visibleAgendaItems.some((item) => {
+    if (attendance.visitaId && item.id === attendance.visitaId) {
+      return true;
+    }
+
+    if (attendance.piscinaId && item.piscinaId === attendance.piscinaId) {
+      return true;
+    }
+
+    if (attendance.clienteId && item.clientId === attendance.clienteId) {
+      return true;
+    }
+
+    return Boolean(attendance.clientName && item.clientName === attendance.clientName);
+  });
+}
+
+function isProductRequestVisibleForEmployee(request: ProductRequest, visibleAgendaItems: AgendaItem[]) {
+  return visibleAgendaItems.some((item) => {
+    if (request.visitId && item.id === request.visitId) {
+      return true;
+    }
+
+    if (request.piscinaId && item.piscinaId === request.piscinaId) {
+      return true;
+    }
+
+    if (request.clientId && item.clientId === request.clientId) {
+      return true;
+    }
+
+    return Boolean(request.clientName && item.clientName === request.clientName);
+  });
 }
 
 function isTemporaryLocalUri(uri: string) {
