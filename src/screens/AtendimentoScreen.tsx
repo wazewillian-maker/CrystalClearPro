@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import * as ImagePicker from "expo-image-picker";
 
 import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
@@ -13,6 +14,8 @@ type ChecklistItem = {
   id: string;
   label: string;
 };
+
+type AttendancePhotoSlot = "before" | "after";
 
 const checklistItems: ChecklistItem[] = [
   { id: "measured-ph", label: "Medir pH" },
@@ -86,6 +89,8 @@ export function AtendimentoScreen({
   const [neededObservation, setNeededObservation] = useState("");
   const [neededProducts, setNeededProducts] = useState<MissingProductItem[]>([]);
   const [observations, setObservations] = useState("");
+  const [beforePhotoUri, setBeforePhotoUri] = useState("");
+  const [afterPhotoUri, setAfterPhotoUri] = useState("");
   const [error, setError] = useState("");
   const [finalized, setFinalized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -187,6 +192,49 @@ export function AtendimentoScreen({
     setNeededProducts((currentProducts) => currentProducts.filter((product) => product.id !== productId));
   }
 
+  async function pickPhoto(slot: AttendancePhotoSlot, source: "camera" | "library") {
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      if (source === "camera") {
+        const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+
+        if (!cameraPermission.granted) {
+          setError("Permita o acesso a camera para tirar a foto.");
+          return;
+        }
+      }
+
+      const result =
+        source === "camera"
+          ? await ImagePicker.launchCameraAsync({
+              allowsEditing: false,
+              mediaTypes: "images",
+              quality: 0.8,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              allowsEditing: false,
+              mediaTypes: "images",
+              quality: 0.8,
+            });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      const selectedUri = result.assets[0].uri;
+
+      if (slot === "before") {
+        setBeforePhotoUri(selectedUri);
+      } else {
+        setAfterPhotoUri(selectedUri);
+      }
+    } catch (photoError) {
+      setError(photoError instanceof Error ? photoError.message : "Nao foi possivel selecionar a foto.");
+    }
+  }
+
   async function finalizeAttendance() {
     if (saving || finalized || finalizingRef.current) {
       return;
@@ -207,6 +255,12 @@ export function AtendimentoScreen({
       return;
     }
 
+    if (!beforePhotoUri || !afterPhotoUri) {
+      finalizingRef.current = false;
+      setError("Registre a Foto Antes e a Foto Depois para finalizar o atendimento.");
+      return;
+    }
+
     setError("");
     setSaving(true);
 
@@ -220,10 +274,10 @@ export function AtendimentoScreen({
         .join(", ");
       const finishedAttendance: AttendanceRecord = {
         id: String(Date.now()),
-        afterPhotoUri: "foto-depois-placeholder",
+        afterPhotoUri,
         alkalinity: alkalinity.trim(),
         attendanceDate: attendanceDate.trim(),
-        beforePhotoUri: "foto-antes-placeholder",
+        beforePhotoUri,
         chlorine: chlorine.trim(),
         clienteId: initialClientId ?? selectedClient?.id,
         clientName: clientName.trim(),
@@ -429,12 +483,18 @@ export function AtendimentoScreen({
 
             <View style={styles.card}>
               <Text style={styles.groupTitle}>Fotos</Text>
-              <View style={styles.photoPlaceholder}>
-                <Text selectable style={styles.photoPlaceholderText}>Foto Antes - placeholder</Text>
-              </View>
-              <View style={styles.photoPlaceholder}>
-                <Text selectable style={styles.photoPlaceholderText}>Foto Depois - placeholder</Text>
-              </View>
+              <AttendancePhotoField
+                label="Foto Antes"
+                onTakePhoto={() => pickPhoto("before", "camera")}
+                onChoosePhoto={() => pickPhoto("before", "library")}
+                uri={beforePhotoUri}
+              />
+              <AttendancePhotoField
+                label="Foto Depois"
+                onTakePhoto={() => pickPhoto("after", "camera")}
+                onChoosePhoto={() => pickPhoto("after", "library")}
+                uri={afterPhotoUri}
+              />
             </View>
 
             <PrimaryButton
@@ -543,6 +603,42 @@ function NeededProductList({ items, onRemove }: { items: MissingProductItem[]; o
           <RemoveButton label={item.product} onPress={() => onRemove(item.id)} />
         </View>
       ))}
+    </View>
+  );
+}
+
+function AttendancePhotoField({
+  label,
+  onChoosePhoto,
+  onTakePhoto,
+  uri,
+}: {
+  label: string;
+  onChoosePhoto: () => void;
+  onTakePhoto: () => void;
+  uri: string;
+}) {
+  return (
+    <View style={styles.photoField}>
+      <Text style={styles.label}>{label}</Text>
+      {uri ? (
+        <Image accessibilityLabel={label} source={{ uri }} style={styles.photoPreview} />
+      ) : (
+        <View style={styles.photoPlaceholder}>
+          <Text selectable style={styles.photoPlaceholderText}>
+            Foto obrigatoria nao registrada
+          </Text>
+        </View>
+      )}
+      <View style={styles.photoActions}>
+        <PrimaryButton onPress={onTakePhoto} style={styles.photoActionButton} title={uri ? "Tirar novamente" : "Tirar foto"} />
+        <PrimaryButton
+          onPress={onChoosePhoto}
+          style={styles.photoActionButton}
+          title={uri ? "Escolher outra" : "Escolher da galeria"}
+          variant="secondary"
+        />
+      </View>
     </View>
   );
 }
@@ -764,6 +860,28 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     fontWeight: "900",
+    textAlign: "center",
+  },
+  photoActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  photoActionButton: {
+    flexGrow: 1,
+    height: 46,
+    minWidth: 150,
+  },
+  photoField: {
+    gap: 10,
+  },
+  photoPreview: {
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 150,
+    width: "100%",
   },
   removeButton: {
     backgroundColor: "rgba(231, 76, 60, 0.22)",

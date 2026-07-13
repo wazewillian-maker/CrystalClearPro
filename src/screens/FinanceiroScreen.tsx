@@ -8,7 +8,7 @@ import { PrimaryButton } from "../components/primary-button";
 import { StatusBadge } from "../components/status-badge";
 import colors from "../theme/colors";
 import { clientPlanLabels, type Client } from "../types/client";
-import type { PaymentStatuses } from "../types/finance";
+import type { PaymentStatus, PaymentStatuses } from "../types/finance";
 
 type FinanceiroScreenProps = {
   clients: Client[];
@@ -17,18 +17,35 @@ type FinanceiroScreenProps = {
   paymentStatuses: PaymentStatuses;
 };
 
+type FinancialClient = {
+  client: Client;
+  dueDayLabel: string;
+  monthlyValue: number;
+  monthlyValueLabel: string;
+  status: PaymentStatus;
+};
+
+const paymentStatusLabels: Record<PaymentStatus, string> = {
+  overdue: "Em atraso",
+  paid: "Pago",
+  pending: "Pendente",
+};
+
 export function FinanceiroScreen({
   clients,
   onBack,
   onMarkAsPaid,
   paymentStatuses,
 }: FinanceiroScreenProps) {
-  const clientsWithValue = clients.filter(hasMonthlyValue);
-  const totalToReceive = clientsWithValue.reduce((total, client) => total + client.valorMensal, 0);
-  const totalReceived = clientsWithValue
-    .filter((client) => getPaymentStatus(client.id, paymentStatuses) === "paid")
-    .reduce((total, client) => total + client.valorMensal, 0);
-  const totalPending = totalToReceive - totalReceived;
+  const safeClients = Array.isArray(clients) ? clients : [];
+  const financialClients = safeClients.map((client) => toFinancialClient(client, paymentStatuses));
+  const totalReceived = financialClients
+    .filter((item) => item.status === "paid")
+    .reduce((total, item) => total + item.monthlyValue, 0);
+  const totalPending = financialClients
+    .filter((item) => item.status !== "paid")
+    .reduce((total, item) => total + item.monthlyValue, 0);
+  const overdueCount = financialClients.filter((item) => item.status === "overdue").length;
 
   return (
     <View style={styles.root}>
@@ -37,9 +54,9 @@ export function FinanceiroScreen({
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={styles.eyebrow}>Financeiro</Text>
-            <Text style={styles.title}>Cobranças mensais</Text>
+            <Text style={styles.title}>Cobrancas mensais</Text>
             <Text selectable style={styles.subtitle}>
-              Acompanhe os pagamentos dos clientes sem exibir dados bancarios.
+              Acompanhe pagamentos, pendencias e atrasos dos clientes ativos.
             </Text>
           </View>
 
@@ -52,53 +69,51 @@ export function FinanceiroScreen({
         </View>
 
         <View style={styles.metricsGrid}>
-          <FinanceMetric label="Total a receber" value={formatCurrency(totalToReceive)} />
-          <FinanceMetric label="Total recebido" tone="success" value={formatCurrency(totalReceived)} />
+          <FinanceMetric label="Recebido no mes" tone="success" value={formatCurrency(totalReceived)} />
           <FinanceMetric label="Total pendente" tone="warning" value={formatCurrency(totalPending)} />
+          <FinanceMetric label="Clientes em atraso" tone="danger" value={String(overdueCount)} />
+          <FinanceMetric label="Clientes ativos" value={String(safeClients.length)} />
         </View>
 
-        {clients.length === 0 ? (
+        {safeClients.length === 0 ? (
           <AppCard style={styles.emptyState}>
             <Text selectable style={styles.emptyTitle}>
-              Nenhum cliente cadastrado para cobrança.
+              Nenhum cliente cadastrado para cobranca.
             </Text>
           </AppCard>
         ) : (
           <View style={styles.chargeList}>
-            {clients.map((client) => {
-              const isPaid = getPaymentStatus(client.id, paymentStatuses) === "paid";
-              const monthlyValue = hasMonthlyValue(client)
-                ? formatCurrency(client.valorMensal)
-                : "Nao informado";
-              const dueDay = hasDueDay(client) ? String(client.diaVencimento) : "Nao informado";
+            {financialClients.map(({ client, dueDayLabel, monthlyValueLabel, status }) => {
+              const isPaid = status === "paid";
 
               return (
-                <AppCard key={client.id} style={styles.chargeCard} tone={isPaid ? "success" : "default"}>
+                <AppCard key={client.id} style={styles.chargeCard} tone={getCardTone(status)}>
                   <View style={styles.chargeHeader}>
                     <PoolReferencePhoto uri={client.referencePhotoUri} />
                     <View style={styles.clientInfo}>
                       <Text selectable style={styles.clientName}>
-                        {client.name}
+                        {safeText(client.name, "Cliente sem nome")}
                       </Text>
                       <Text selectable style={styles.neighborhood}>
-                        {client.neighborhood}
+                        {safeText(client.neighborhood, "Bairro nao informado")}
                       </Text>
                     </View>
 
-                    <StatusBadge label={isPaid ? "Pago" : "Pendente"} tone={isPaid ? "paid" : "pending"} />
+                    <StatusBadge label={paymentStatusLabels[status]} tone={getPaymentStatusTone(status)} />
                   </View>
 
                   <View style={styles.detailGroup}>
-                    <DetailRow label="Plano de atendimento" value={clientPlanLabels[client.plan]} />
-                    <DetailRow label="Valor mensal" value={monthlyValue} />
-                    <DetailRow label="Dia de vencimento" value={dueDay} />
+                    <DetailRow label="Plano de atendimento" value={clientPlanLabels[client.plan] ?? "Nao informado"} />
+                    <DetailRow label="Valor mensal" value={monthlyValueLabel} />
+                    <DetailRow label="Dia de vencimento" value={dueDayLabel} />
+                    <DetailRow label="Status financeiro" value={paymentStatusLabels[status]} />
                   </View>
 
                   {!isPaid ? (
                     <PrimaryButton
                       onPress={() => onMarkAsPaid(client.id)}
                       style={styles.paidButton}
-                      title="Marcar como Pago"
+                      title="Marcar como recebido"
                       variant="success"
                     />
                   ) : null}
@@ -115,7 +130,7 @@ export function FinanceiroScreen({
 type FinanceMetricProps = {
   label: string;
   value: string;
-  tone?: "primary" | "success" | "warning";
+  tone?: "danger" | "primary" | "success" | "warning";
 };
 
 function FinanceMetric({ label, value, tone = "primary" }: FinanceMetricProps) {
@@ -145,22 +160,67 @@ function DetailRow({ label, value }: DetailRowProps) {
   );
 }
 
+function toFinancialClient(client: Client, paymentStatuses: PaymentStatuses): FinancialClient {
+  const monthlyValue = hasMonthlyValue(client) ? client.valorMensal : 0;
+
+  return {
+    client,
+    dueDayLabel: hasDueDay(client) ? String(client.diaVencimento) : "Nao informado",
+    monthlyValue,
+    monthlyValueLabel: hasMonthlyValue(client) ? formatCurrency(client.valorMensal) : "Nao informado",
+    status: getPaymentStatus(client, paymentStatuses),
+  };
+}
+
+function getPaymentStatus(client: Client, paymentStatuses: PaymentStatuses): PaymentStatus {
+  const storedStatus = paymentStatuses[client.id];
+
+  if (storedStatus === "paid") {
+    return "paid";
+  }
+
+  if (storedStatus === "overdue") {
+    return "overdue";
+  }
+
+  return isClientOverdue(client) ? "overdue" : "pending";
+}
+
+function getPaymentStatusTone(status: PaymentStatus) {
+  if (status === "paid") {
+    return "paid";
+  }
+
+  if (status === "overdue") {
+    return "rejected";
+  }
+
+  return "pending";
+}
+
+function getCardTone(status: PaymentStatus) {
+  if (status === "paid") {
+    return "success";
+  }
+
+  if (status === "overdue") {
+    return "warning";
+  }
+
+  return "default";
+}
+
 function formatCurrency(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+
   return new Intl.NumberFormat("pt-BR", {
     currency: "BRL",
     style: "currency",
-  }).format(value);
-}
-
-function getPaymentStatus(
-  clientId: string,
-  paymentStatuses: PaymentStatuses,
-) {
-  return paymentStatuses[clientId] ?? "pending";
+  }).format(safeValue);
 }
 
 function hasMonthlyValue(client: Client) {
-  return typeof client.valorMensal === "number" && Number.isFinite(client.valorMensal);
+  return typeof client.valorMensal === "number" && Number.isFinite(client.valorMensal) && client.valorMensal > 0;
 }
 
 function hasDueDay(client: Client) {
@@ -170,6 +230,18 @@ function hasDueDay(client: Client) {
     client.diaVencimento >= 1 &&
     client.diaVencimento <= 31
   );
+}
+
+function isClientOverdue(client: Client) {
+  if (!hasDueDay(client) || !hasMonthlyValue(client)) {
+    return false;
+  }
+
+  return new Date().getDate() > client.diaVencimento;
+}
+
+function safeText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }
 
 const styles = StyleSheet.create({
@@ -186,10 +258,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 16,
     padding: 16,
-  },
-  chargeCardPaid: {
-    backgroundColor: "rgba(39, 174, 96, 0.24)",
-    borderColor: "rgba(39, 174, 96, 0.52)",
   },
   chargeHeader: {
     alignItems: "flex-start",
@@ -214,6 +282,9 @@ const styles = StyleSheet.create({
     gap: 24,
     padding: 20,
     paddingTop: 28,
+  },
+  dangerMetric: {
+    backgroundColor: "rgba(231, 76, 60, 0.2)",
   },
   detailGroup: {
     gap: 12,
@@ -301,23 +372,6 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.background,
     flex: 1,
-  },
-  statusBadge: {
-    backgroundColor: "rgba(243, 156, 18, 0.22)",
-    borderColor: "rgba(243, 156, 18, 0.52)",
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusBadgePaid: {
-    backgroundColor: "rgba(39, 174, 96, 0.32)",
-    borderColor: "rgba(39, 174, 96, 0.6)",
-  },
-  statusText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: "900",
   },
   subtitle: {
     color: colors.textSecondary,

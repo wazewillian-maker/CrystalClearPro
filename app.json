@@ -25,6 +25,15 @@
     },
     "web": {
       "favicon": "./assets/branding/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Permita que o Crystal Clear Pro use a camera para registrar as fotos do atendimento.",
+          "photosPermission": "Permita que o Crystal Clear Pro acesse suas fotos para registrar o atendimento."
+        }
+      ]
+    ]
   }
 }
