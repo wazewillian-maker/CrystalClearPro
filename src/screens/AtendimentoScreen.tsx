@@ -8,7 +8,7 @@ import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { AttendanceProductUsed, AttendanceRecord } from "../types/attendance";
 import type { Client } from "../types/client";
-import type { MissingProductItem } from "../types/product-request";
+import type { MissingProductItem, ProductUnit } from "../types/product-request";
 
 type ChecklistItem = {
   id: string;
@@ -30,6 +30,9 @@ const checklistItems: ChecklistItem[] = [
   { id: "checked-leaks", label: "Verificar vazamentos" },
   { id: "checked-equipment", label: "Conferir equipamentos" },
 ];
+
+const productOptions = ["Cloro granulado", "Barrilha leve", "Clarificante", "Algicida", "Peneira"];
+const productUnits: ProductUnit[] = ["kg", "g", "L", "ml", "unidade"];
 
 type AtendimentoScreenProps = {
   canViewCommercialData?: boolean;
@@ -87,6 +90,7 @@ export function AtendimentoScreen({
   const [neededProduct, setNeededProduct] = useState("");
   const [neededQuantity, setNeededQuantity] = useState("");
   const [neededObservation, setNeededObservation] = useState("");
+  const [neededUnit, setNeededUnit] = useState<ProductUnit>("unidade");
   const [neededProducts, setNeededProducts] = useState<MissingProductItem[]>([]);
   const [observations, setObservations] = useState("");
   const [beforePhotoUri, setBeforePhotoUri] = useState("");
@@ -177,11 +181,13 @@ export function AtendimentoScreen({
         observation: neededObservation.trim(),
         product: neededProduct.trim(),
         quantity: neededQuantity.trim(),
+        unit: neededUnit,
       },
     ]);
     setNeededProduct("");
     setNeededQuantity("");
     setNeededObservation("");
+    setNeededUnit("unidade");
   }
 
   function removeUsedProduct(productId: string) {
@@ -458,8 +464,39 @@ export function AtendimentoScreen({
               <Text selectable style={styles.helperText}>
                 Estes itens ficam pendentes para aprovacao do Dono. Estoque ainda nao sera movimentado.
               </Text>
+              <View style={styles.optionGroup}>
+                <Text style={styles.label}>Produto</Text>
+                <View style={styles.chipList}>
+                  {productOptions.map((productOption) => (
+                    <OptionChip
+                      key={productOption}
+                      label={productOption}
+                      onPress={() => setNeededProduct(productOption)}
+                      selected={neededProduct === productOption}
+                    />
+                  ))}
+                  <OptionChip
+                    label="Personalizado"
+                    onPress={() => setNeededProduct("")}
+                    selected={!productOptions.includes(neededProduct) && neededProduct.trim().length > 0}
+                  />
+                </View>
+              </View>
               <FormField label="Produto" onChangeText={setNeededProduct} placeholder="Barrilha" value={neededProduct} />
-              <FormField label="Quantidade" onChangeText={setNeededQuantity} placeholder="500 g" value={neededQuantity} />
+              <FormField label="Quantidade" onChangeText={setNeededQuantity} placeholder="500" value={neededQuantity} />
+              <View style={styles.optionGroup}>
+                <Text style={styles.label}>Unidade</Text>
+                <View style={styles.chipList}>
+                  {productUnits.map((unit) => (
+                    <OptionChip
+                      key={unit}
+                      label={unit}
+                      onPress={() => setNeededUnit(unit)}
+                      selected={neededUnit === unit}
+                    />
+                  ))}
+                </View>
+              </View>
               <FormField
                 label="Observacao"
                 multiline
@@ -584,6 +621,27 @@ function ProductList({ items, onRemove }: { items: AttendanceProductUsed[]; onRe
   );
 }
 
+function OptionChip({
+  label,
+  onPress,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.optionChip, selected && styles.optionChipSelected, pressed && styles.optionChipPressed]}
+    >
+      <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function NeededProductList({ items, onRemove }: { items: MissingProductItem[]; onRemove: (id: string) => void }) {
   if (items.length === 0) {
     return null;
@@ -595,7 +653,9 @@ function NeededProductList({ items, onRemove }: { items: MissingProductItem[]; o
         <View key={item.id} style={styles.listItem}>
           <View style={styles.listItemText}>
             <Text selectable style={styles.listItemTitle}>{item.product}</Text>
-            <Text selectable style={styles.listItemDetail}>Quantidade: {item.quantity}</Text>
+            <Text selectable style={styles.listItemDetail}>
+              Quantidade: {formatProductQuantity(item)}
+            </Text>
             {item.observation ? (
               <Text selectable style={styles.listItemDetail}>{item.observation}</Text>
             ) : null}
@@ -605,6 +665,10 @@ function NeededProductList({ items, onRemove }: { items: MissingProductItem[]; o
       ))}
     </View>
   );
+}
+
+function formatProductQuantity(item: MissingProductItem) {
+  return item.unit ? `${item.quantity} ${item.unit}` : item.quantity;
 }
 
 function AttendancePhotoField({
@@ -813,6 +877,11 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textTransform: "uppercase",
   },
+  chipList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   list: {
     gap: 10,
   },
@@ -845,6 +914,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
+  },
+  optionChip: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "rgba(255, 255, 255, 0.14)",
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  optionChipPressed: {
+    opacity: 0.86,
+  },
+  optionChipSelected: {
+    backgroundColor: "rgba(46, 134, 222, 0.24)",
+    borderColor: "rgba(46, 134, 222, 0.68)",
+  },
+  optionChipText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  optionChipTextSelected: {
+    color: colors.white,
+  },
+  optionGroup: {
+    gap: 8,
   },
   photoPlaceholder: {
     alignItems: "center",

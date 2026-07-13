@@ -13,6 +13,7 @@ export type ProdutoSolicitadoItem = {
   id: string;
   produto: string;
   quantidade: string;
+  unidade?: "kg" | "g" | "L" | "ml" | "unidade";
   observacao?: string;
   status: ProdutoSolicitadoItemStatus;
   aprovadoEm?: Timestamp;
@@ -27,8 +28,10 @@ export type ProdutoSolicitado = {
   clienteId: string;
   piscinaId: string;
   atendimentoId?: string;
+  proximaVisitaData?: string;
   status: ProdutoSolicitadoStatus;
   itens: ProdutoSolicitadoItem[];
+  visitaId?: string;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
 };

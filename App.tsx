@@ -233,7 +233,7 @@ function AppContent() {
       : productRequests;
   const productsPendingCount = visibleProductRequests.reduce(
     (total, request) =>
-      total + request.items.filter((item) => item.status === "approved").length,
+      total + request.items.filter((item) => item.status !== "delivered" && item.status !== "rejected").length,
     0,
   );
   const pendingProductApprovalCount = visibleProductRequests.filter(
@@ -1396,11 +1396,13 @@ function AppContent() {
             observacao: item.observation,
             produto: item.product,
             quantidade: item.quantity,
+            unidade: item.unit,
           })),
           produtosFaltando: missingProducts.map((item) => ({
             observacao: item.observation,
             produto: item.product,
             quantidade: item.quantity,
+            unidade: item.unit,
           })),
           produtosUtilizadosLista: productsUsedItems.map((item) => ({
             produto: item.product,
@@ -1431,18 +1433,25 @@ function AppContent() {
       const selectedClientForAttendance = clients.find(
         (client) => client.name === attendanceWithEmployee.clientName,
       );
+      const nextVisitDate =
+        getNextVisitDateForProductRequest(selectedAgendaItem, agendaItems) ?? attendanceWithEmployee.attendanceDate;
 
       const productRequest: ProductRequest = {
         id: `${attendanceWithEmployee.id}-products`,
+        address: selectedClientForAttendance?.address ?? selectedAgendaItem?.address,
         attendanceId: attendanceWithEmployee.id,
+        clientId: attendanceWithEmployee.clienteId ?? selectedAgendaItem?.clientId ?? selectedClientForAttendance?.id,
         clientName: attendanceWithEmployee.clientName,
         neighborhood: selectedClientForAttendance?.neighborhood ?? "Nao informado",
-        nextVisitDate: attendanceWithEmployee.attendanceDate,
+        nextVisitDate,
+        piscinaId: attendanceWithEmployee.piscinaId ?? selectedAgendaItem?.piscinaId,
+        poolName: attendanceWithEmployee.poolName ?? selectedAgendaItem?.poolName,
         status: "pending-approval",
         items: missingProducts.map((item) => ({
           ...item,
           status: "pending",
         })),
+        visitId: selectedAgendaItem?.id ?? attendanceWithEmployee.visitaId,
       };
 
       setProductRequests((currentRequests) => [productRequest, ...currentRequests]);
@@ -3165,6 +3174,8 @@ function updateRequestItem(
           ...item,
           approvedAt:
             status === "approved" ? item.approvedAt ?? getTodayLabel() : item.approvedAt,
+          deliveredAt:
+            status === "delivered" ? item.deliveredAt ?? getTodayLabel() : item.deliveredAt,
           deliveryPhotoUri: deliveryPhotoUri ?? item.deliveryPhotoUri,
           status,
         }
@@ -3200,4 +3211,37 @@ function getRequestStatus(items: ProductRequestItem[]): ProductRequestStatus {
   }
 
   return "partially-approved";
+}
+
+function getNextVisitDateForProductRequest(selectedAgendaItem?: AgendaItem, agendaItems: AgendaItem[] = []) {
+  if (!selectedAgendaItem) {
+    return undefined;
+  }
+
+  const currentVisitDate = parseDateLabel(selectedAgendaItem.data ?? selectedAgendaItem.visitDate);
+  const selectedPoolId = selectedAgendaItem.piscinaId;
+  const selectedClientId = selectedAgendaItem.clientId;
+  const selectedClientName = selectedAgendaItem.clientName;
+
+  const nextVisit = agendaItems
+    .filter((item) => {
+      if (item.id === selectedAgendaItem.id || item.status === "finished") {
+        return false;
+      }
+
+      const samePool = selectedPoolId ? item.piscinaId === selectedPoolId : false;
+      const sameClient = selectedClientId
+        ? item.clientId === selectedClientId
+        : item.clientName === selectedClientName;
+
+      if (!samePool && !sameClient) {
+        return false;
+      }
+
+      const itemDate = parseDateLabel(item.data ?? item.visitDate);
+      return currentVisitDate && itemDate ? itemDate > currentVisitDate : true;
+    })
+    .sort((left, right) => sortDateLabels(left.data ?? left.visitDate ?? "", right.data ?? right.visitDate ?? ""))[0];
+
+  return nextVisit?.data ?? nextVisit?.visitDate;
 }

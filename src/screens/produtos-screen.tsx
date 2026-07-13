@@ -15,10 +15,10 @@ import { AppCard } from "../components/app-card";
 import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { ScreenHeader } from "../components/screen-header";
-import { StatusBadge } from "../components/status-badge";
+import { StatusBadge, type StatusTone } from "../components/status-badge";
 import colors from "../theme/colors";
 import type { Client } from "../types/client";
-import type { ProductRequest, ProductRequestItem } from "../types/product-request";
+import type { ProductRequest, ProductRequestItem, ProductRequestItemStatus } from "../types/product-request";
 
 type ProdutosScreenProps = {
   clients: Client[];
@@ -27,17 +27,19 @@ type ProdutosScreenProps = {
   productRequests: ProductRequest[];
 };
 
-type ApprovedItem = {
+type PendingDeliveryItem = {
+  address: string;
   clientName: string;
   item: ProductRequestItem;
   neighborhood: string;
   nextVisitDate: string;
+  poolName: string;
   requestId: string;
 };
 
-type ApprovedItemGroup = {
+type PendingDeliveryItemGroup = {
   clientName: string;
-  items: ApprovedItem[];
+  items: PendingDeliveryItem[];
 };
 
 export function ProdutosScreen({
@@ -54,16 +56,18 @@ export function ProdutosScreen({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  const approvedItems = useMemo(
+  const pendingDeliveryItems = useMemo(
     () =>
-      productRequests.flatMap((request) =>
-        request.items
-          .filter((item) => item.status === "approved")
+      (Array.isArray(productRequests) ? productRequests : []).flatMap((request) =>
+        (Array.isArray(request.items) ? request.items : [])
+          .filter((item) => item.status !== "delivered" && item.status !== "rejected")
           .map((item) => ({
+            address: request.address ?? "Endereco nao informado",
             clientName: request.clientName,
             item,
             neighborhood: request.neighborhood,
             nextVisitDate: request.nextVisitDate,
+            poolName: request.poolName ?? "Piscina nao informada",
             requestId: request.id,
           })),
       ),
@@ -72,17 +76,17 @@ export function ProdutosScreen({
 
   const groupedItems = useMemo(
     () =>
-      approvedItems.reduce<ApprovedItemGroup[]>((groups, approvedItem) => {
-        const existingGroup = groups.find((group) => group.clientName === approvedItem.clientName);
+      pendingDeliveryItems.reduce<PendingDeliveryItemGroup[]>((groups, pendingItem) => {
+        const existingGroup = groups.find((group) => group.clientName === pendingItem.clientName);
 
         if (existingGroup) {
-          existingGroup.items.push(approvedItem);
+          existingGroup.items.push(pendingItem);
           return groups;
         }
 
-        return [...groups, { clientName: approvedItem.clientName, items: [approvedItem] }];
+        return [...groups, { clientName: pendingItem.clientName, items: [pendingItem] }];
       }, []),
-    [approvedItems],
+    [pendingDeliveryItems],
   );
 
   async function pickDeliveryPhoto() {
@@ -130,11 +134,6 @@ export function ProdutosScreen({
   }
 
   function finalizeDelivery(requestId: string, itemId: string) {
-    if (!deliveryPhotoUri) {
-      setError("Adicione a foto do produto entregue para finalizar a entrega.");
-      return;
-    }
-
     onConfirmDelivery(requestId, itemId, deliveryPhotoUri);
     setDeliveryTarget(null);
     setDeliveryPhotoUri("");
@@ -153,7 +152,7 @@ export function ProdutosScreen({
         <ScreenHeader
           eyebrow="Produtos Pendentes"
           onBack={onBack}
-          subtitle="Somente itens aprovados pelo cliente aparecem aqui para entrega."
+          subtitle="Solicitacoes registradas no atendimento aparecem aqui ate a entrega."
           title="Produtos para levar"
         />
 
@@ -174,9 +173,9 @@ export function ProdutosScreen({
         ) : null}
 
         <AppCard style={styles.summary}>
-          <Text style={styles.summaryTitle}>{approvedItems.length} aprovado(s) para levar</Text>
+          <Text style={styles.summaryTitle}>{pendingDeliveryItems.length} pendente(s) para levar</Text>
           <Text selectable style={styles.summaryText}>
-            Itens pendentes de aprovacao, recusados ou ja entregues ficam fora desta lista.
+            Itens entregues ou recusados ficam fora desta lista e continuam registrados no historico do cliente.
           </Text>
         </AppCard>
 
@@ -188,54 +187,59 @@ export function ProdutosScreen({
                   {group.clientName}
                 </Text>
 
-                {group.items.map((approvedItem) => {
+                {group.items.map((pendingItem) => {
                   const isConfirming =
-                    deliveryTarget?.requestId === approvedItem.requestId &&
-                    deliveryTarget.itemId === approvedItem.item.id;
+                    deliveryTarget?.requestId === pendingItem.requestId &&
+                    deliveryTarget.itemId === pendingItem.item.id;
 
                   return (
-                    <AppCard key={approvedItem.item.id} style={styles.productCard}>
+                    <AppCard key={`${pendingItem.requestId}-${pendingItem.item.id}`} style={styles.productCard}>
                       <View style={styles.productHeader}>
                         <PoolReferencePhoto
-                          uri={clients.find((client) => client.name === approvedItem.clientName)?.referencePhotoUri}
+                          uri={clients.find((client) => client.name === pendingItem.clientName)?.referencePhotoUri}
                         />
                         <View style={styles.clientInfo}>
                           <Text selectable style={styles.clientName}>
-                            {approvedItem.clientName}
+                            {pendingItem.clientName}
                           </Text>
                           <Text selectable style={styles.neighborhood}>
-                            {approvedItem.neighborhood}
+                            {pendingItem.neighborhood}
                           </Text>
                         </View>
 
-                        <StatusBadge label="Aprovado" tone="approved" />
+                        <StatusBadge label={getProductStatusLabel(pendingItem.item.status)} tone={getProductStatusTone(pendingItem.item.status)} />
                       </View>
 
                       <View style={styles.detailGroup}>
-                        <DetailRow label="Produto/item" value={approvedItem.item.product} />
-                        <DetailRow label="Quantidade" value={approvedItem.item.quantity} />
-                        <DetailRow label="Data prevista" value={approvedItem.nextVisitDate} />
+                        <DetailRow label="Produto/item" value={pendingItem.item.product || "Produto nao informado"} />
+                        <DetailRow label="Quantidade" value={formatProductQuantity(pendingItem.item)} />
+                        <DetailRow label="Piscina" value={pendingItem.poolName} />
+                        <DetailRow label="Endereco" value={pendingItem.address} />
+                        <DetailRow label="Proxima visita" value={pendingItem.nextVisitDate || "Data nao informada"} />
                         <DetailRow
                           label="Observacao"
-                          value={approvedItem.item.observation || "Sem observacao"}
+                          value={pendingItem.item.observation || "Sem observacao"}
                         />
                       </View>
 
                       <PrimaryButton
                         onPress={() =>
                           startDeliveryConfirmation(
-                            approvedItem.requestId,
-                            approvedItem.item.id,
+                            pendingItem.requestId,
+                            pendingItem.item.id,
                           )
                         }
                         style={styles.deliveryButton}
-                        title="Confirmar entrega"
+                        title="Produto entregue"
                         variant="success"
                       />
 
                       {isConfirming ? (
                         <View style={styles.deliveryBox}>
-                          <Text style={styles.deliveryTitle}>Foto do produto entregue</Text>
+                          <Text style={styles.deliveryTitle}>Confirmar entrega</Text>
+                          <Text selectable style={styles.deliveryHint}>
+                            A foto da entrega e opcional.
+                          </Text>
                           <PrimaryButton
                             onPress={pickDeliveryPhoto}
                             style={styles.photoButton}
@@ -267,7 +271,7 @@ export function ProdutosScreen({
                             </Pressable>
                             <PrimaryButton
                               onPress={() =>
-                                finalizeDelivery(approvedItem.requestId, approvedItem.item.id)
+                                finalizeDelivery(pendingItem.requestId, pendingItem.item.id)
                               }
                               style={styles.finishButton}
                               title="Finalizar entrega"
@@ -284,7 +288,7 @@ export function ProdutosScreen({
           ) : (
             <AppCard style={styles.emptyBox}>
               <Text selectable style={styles.emptyText}>
-                Nenhum item aprovado para levar por enquanto.
+                Nenhum produto pendente para levar por enquanto.
               </Text>
             </AppCard>
           )}
@@ -308,6 +312,32 @@ function DetailRow({ label, value }: DetailRowProps) {
       </Text>
     </View>
   );
+}
+
+function formatProductQuantity(item: ProductRequestItem) {
+  return item.unit ? `${item.quantity} ${item.unit}` : item.quantity || "Quantidade nao informada";
+}
+
+function getProductStatusLabel(status: ProductRequestItemStatus) {
+  const labels: Record<ProductRequestItemStatus, string> = {
+    approved: "Aprovado",
+    delivered: "Entregue",
+    pending: "Pendente",
+    rejected: "Recusado",
+  };
+
+  return labels[status] ?? "Pendente";
+}
+
+function getProductStatusTone(status: ProductRequestItemStatus): StatusTone {
+  const tones: Record<ProductRequestItemStatus, StatusTone> = {
+    approved: "approved",
+    delivered: "delivered",
+    pending: "pending",
+    rejected: "rejected",
+  };
+
+  return tones[status] ?? "pending";
 }
 
 const styles = StyleSheet.create({
@@ -363,6 +393,11 @@ const styles = StyleSheet.create({
   },
   deliveryButton: {
     height: 48,
+  },
+  deliveryHint: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
   },
   deliveryTitle: {
     color: colors.white,
