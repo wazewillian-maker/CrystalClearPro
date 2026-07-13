@@ -16,7 +16,9 @@ type HistoricoScreenProps = {
 
 export function HistoricoScreen({ attendances, clients, onBack }: HistoricoScreenProps) {
   const [selectedAttendanceId, setSelectedAttendanceId] = useState<string | null>(null);
-  const selectedAttendance = attendances.find(
+  const safeAttendances = Array.isArray(attendances) ? attendances : [];
+  const safeClients = Array.isArray(clients) ? clients : [];
+  const selectedAttendance = safeAttendances.find(
     (attendance) => attendance.id === selectedAttendanceId,
   );
 
@@ -44,11 +46,11 @@ export function HistoricoScreen({ attendances, clients, onBack }: HistoricoScree
         {selectedAttendance ? (
           <AttendanceDetail
             attendance={selectedAttendance}
-            client={clients.find((client) => client.name === selectedAttendance.clientName)}
+            client={safeClients.find((client) => client.id === selectedAttendance.clienteId || client.name === selectedAttendance.clientName)}
           />
-        ) : attendances.length > 0 ? (
+        ) : safeAttendances.length > 0 ? (
           <View style={styles.attendanceList}>
-            {attendances.map((attendance) => (
+            {safeAttendances.map((attendance) => (
               <Pressable
                 accessibilityLabel={`Abrir atendimento de ${attendance.clientName}`}
                 accessibilityRole="button"
@@ -58,7 +60,7 @@ export function HistoricoScreen({ attendances, clients, onBack }: HistoricoScree
               >
                 <View style={styles.attendanceHeader}>
                   <PoolReferencePhoto
-                    uri={clients.find((client) => client.name === attendance.clientName)?.referencePhotoUri}
+                    uri={safeClients.find((client) => client.id === attendance.clienteId || client.name === attendance.clientName)?.referencePhotoUri}
                   />
                   <View style={styles.attendanceHeaderText}>
                     <Text selectable style={styles.clientName}>
@@ -72,7 +74,7 @@ export function HistoricoScreen({ attendances, clients, onBack }: HistoricoScree
                 </View>
 
                 <Text selectable style={styles.summaryText}>
-                  {attendance.completedItems.length} item(ns) do checklist realizado(s).
+                  {(attendance.completedItems ?? []).length} item(ns) do checklist realizado(s).
                 </Text>
                 <Text selectable style={styles.summaryText}>
                   Produtos: {attendance.productsUsed || "Sem produtos registrados"}
@@ -103,6 +105,9 @@ type AttendanceDetailProps = {
 };
 
 function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
+  const completedItems = Array.isArray(attendance.completedItems) ? attendance.completedItems : [];
+  const missingProducts = Array.isArray(attendance.missingProducts) ? attendance.missingProducts : [];
+
   return (
     <View style={styles.detailContent}>
       <PoolReferencePhoto size="banner" uri={client?.referencePhotoUri} />
@@ -118,8 +123,8 @@ function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
         <DetailRow
           label="Checklist realizado"
           value={
-            attendance.completedItems.length > 0
-              ? attendance.completedItems.join(", ")
+            completedItems.length > 0
+              ? completedItems.join(", ")
               : "Nenhum item marcado"
           }
         />
@@ -130,8 +135,8 @@ function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
         <DetailRow
           label="Produtos faltando"
           value={
-            attendance.missingProducts.length > 0
-              ? attendance.missingProducts
+            missingProducts.length > 0
+              ? missingProducts
                   .map(
                     (item) =>
                       `${item.product} (${item.quantity})${

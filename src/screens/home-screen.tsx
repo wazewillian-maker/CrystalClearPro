@@ -233,11 +233,21 @@ export function HomeScreen({
           </View>
 
           <View style={styles.taskList}>
-            {todayAgendaItems.slice(0, 4).map((item) => {
+            {todayAgendaItems.slice(0, 4).map((item, index) => {
               const agendaClient = clients.find((client) => client.id === item.clientId || client.name === item.clientName);
+              const agendaItemKey = getAgendaItemKey(item, index);
+              const locationText = `${safeText(item.neighborhood, "Bairro nao informado")} - ${safeText(
+                item.address,
+                "Endereco nao informado",
+              )}`;
+              const visitDateText = `Data: ${safeText(item.visitDate ?? item.data, "Hoje")}`;
+              const planDateText =
+                canViewCommercialData && agendaClient?.plan
+                  ? `Plano: ${clientPlanLabels[agendaClient.plan]} - ${visitDateText}`
+                  : visitDateText;
 
               return (
-                <AppCard key={item.id} style={styles.agendaCard}>
+                <AppCard key={agendaItemKey} style={styles.agendaCard}>
                   <View style={styles.agendaHeader}>
                     <PoolReferencePhoto uri={agendaClient?.referencePhotoUri} />
                     <View style={styles.agendaText}>
@@ -245,17 +255,11 @@ export function HomeScreen({
                         {safeText(item.clientName, "Cliente nao encontrado")}
                       </Text>
                       <Text selectable style={styles.agendaDetail}>
-                        {safeText(item.neighborhood, "Bairro nao informado")} - {safeText(item.address, "Endereco nao informado")}
+                        {locationText}
                       </Text>
-                      {canViewCommercialData && agendaClient?.plan ? (
-                        <Text selectable style={styles.agendaDetail}>
-                          Plano: {clientPlanLabels[agendaClient.plan]} - Data: {safeText(item.visitDate ?? item.data, "Hoje")}
-                        </Text>
-                      ) : (
-                        <Text selectable style={styles.agendaDetail}>
-                          Data: {safeText(item.visitDate ?? item.data, "Hoje")}
-                        </Text>
-                      )}
+                      <Text selectable style={styles.agendaDetail}>
+                        {planDateText}
+                      </Text>
                     </View>
                     <StatusBadge
                       label={getAgendaStatusLabel(item.status)}
@@ -341,6 +345,17 @@ export function HomeScreen({
       </ScrollView>
     </View>
   );
+}
+
+function getAgendaItemKey(item: AgendaItem, index: number) {
+  if (item.id) {
+    return item.id;
+  }
+
+  return `${safeText(item.clientId ?? item.clientName, "agenda")}-${safeText(item.piscinaId, "pool")}-${safeText(
+    item.data ?? item.visitDate,
+    "date",
+  )}-${index}`;
 }
 
 function SummaryItem({ label, value }: { label: string; value: number }) {

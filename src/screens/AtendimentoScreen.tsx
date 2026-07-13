@@ -68,6 +68,7 @@ export function AtendimentoScreen({
   responsibleName,
 }: AtendimentoScreenProps) {
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalizingRef = useRef(false);
   const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
   const [attendanceDate, setAttendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
   const [started, setStarted] = useState(!initialVisitId);
@@ -86,6 +87,7 @@ export function AtendimentoScreen({
   const [neededProducts, setNeededProducts] = useState<MissingProductItem[]>([]);
   const [observations, setObservations] = useState("");
   const [error, setError] = useState("");
+  const [finalized, setFinalized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -186,14 +188,21 @@ export function AtendimentoScreen({
   }
 
   async function finalizeAttendance() {
+    if (saving || finalized || finalizingRef.current) {
+      return;
+    }
+
+    finalizingRef.current = true;
     setSuccessMessage("");
 
     if (!started) {
+      finalizingRef.current = false;
       setError("Inicie o atendimento antes de finalizar.");
       return;
     }
 
     if (!clientName.trim() || !attendanceDate.trim()) {
+      finalizingRef.current = false;
       setError("Preencha o nome do cliente e a data do atendimento.");
       return;
     }
@@ -227,6 +236,7 @@ export function AtendimentoScreen({
         poolName,
         productsUsed: productsUsedText,
         productsUsedItems,
+        status: "concluido",
         temperature: temperature.trim(),
         visitaId: initialVisitId,
         waterParameters: {
@@ -239,12 +249,14 @@ export function AtendimentoScreen({
 
       await onSaveAttendance(finishedAttendance);
       setAttendanceRecord(finishedAttendance);
-      setSuccessMessage("Atendimento finalizado. Voltando para a Home...");
+      setFinalized(true);
+      setSuccessMessage("Atendimento finalizado com sucesso. Registro salvo no historico.");
 
       returnHomeTimerRef.current = setTimeout(() => {
         onBack();
       }, 1500);
     } catch (saveError) {
+      finalizingRef.current = false;
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel finalizar o atendimento.");
     } finally {
       setSaving(false);
@@ -426,10 +438,11 @@ export function AtendimentoScreen({
             </View>
 
             <PrimaryButton
+              disabled={finalized}
               loading={saving}
               onPress={finalizeAttendance}
               style={styles.finalizeButton}
-              title="Finalizar atendimento"
+              title={finalized ? "Atendimento finalizado" : "Finalizar atendimento"}
               variant="success"
             />
           </>

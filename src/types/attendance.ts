@@ -16,6 +16,7 @@ export type AttendanceWaterParameters = {
 
 export type AttendanceRecord = {
   id: string;
+  status?: "concluido";
   clienteId?: string;
   clientName: string;
   empresaId?: string;

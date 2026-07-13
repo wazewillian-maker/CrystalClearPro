@@ -79,6 +79,9 @@ export function ClienteAreaScreen({
   const latestAttendance = clientAttendances[0] ?? null;
   const selectedAttendance =
     clientAttendances.find((attendance) => attendance.id === selectedAttendanceId) ?? null;
+  const latestAttendanceCompletedItems = Array.isArray(latestAttendance?.completedItems)
+    ? latestAttendance.completedItems
+    : [];
   const pendingProducts = getClientProductsByStatus(clientRequests, "pending");
   const approvedProducts = clientRequests.flatMap((request) =>
     request.items
@@ -159,8 +162,8 @@ export function ClienteAreaScreen({
               <DetailRow
                 label="Checklist realizado"
                 value={
-                  latestAttendance.completedItems.length > 0
-                    ? latestAttendance.completedItems.join(", ")
+                  latestAttendanceCompletedItems.length > 0
+                    ? latestAttendanceCompletedItems.join(", ")
                     : "Nenhum item marcado"
                 }
               />
@@ -291,7 +294,7 @@ export function ClienteAreaScreen({
                     <Text style={styles.openHint}>Abrir</Text>
                   </View>
                   <Text selectable style={styles.itemDetail}>
-                    {attendance.completedItems.length} item(ns) do checklist realizado(s).
+                    {(attendance.completedItems ?? []).length} item(ns) do checklist realizado(s).
                   </Text>
                 </Pressable>
               ))}
@@ -485,6 +488,9 @@ type AttendanceDetailProps = {
 };
 
 function AttendanceDetail({ attendance, client, onBack }: AttendanceDetailProps) {
+  const completedItems = Array.isArray(attendance.completedItems) ? attendance.completedItems : [];
+  const missingProducts = Array.isArray(attendance.missingProducts) ? attendance.missingProducts : [];
+
   return (
     <View style={styles.detailStack}>
       <PrimaryButton onPress={onBack} style={styles.detailBackButton} title="Voltar" />
@@ -496,8 +502,8 @@ function AttendanceDetail({ attendance, client, onBack }: AttendanceDetailProps)
         <DetailRow
           label="Checklist"
           value={
-            attendance.completedItems.length > 0
-              ? attendance.completedItems.join(", ")
+            completedItems.length > 0
+              ? completedItems.join(", ")
               : "Nenhum item marcado"
           }
         />
@@ -509,8 +515,8 @@ function AttendanceDetail({ attendance, client, onBack }: AttendanceDetailProps)
         <DetailRow
           label="Produtos faltando solicitados"
           value={
-            attendance.missingProducts.length > 0
-              ? attendance.missingProducts
+            missingProducts.length > 0
+              ? missingProducts
                   .map(
                     (item) =>
                       `${item.product} (${item.quantity})${

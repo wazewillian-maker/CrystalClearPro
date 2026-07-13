@@ -33,6 +33,8 @@ export type ParametrosAguaAtendimento = {
   temperatura?: string;
 };
 
+export type AtendimentoStatus = "concluido";
+
 export type Atendimento = {
   id: string;
   empresaId: string;
@@ -42,6 +44,7 @@ export type Atendimento = {
   funcionarioId?: string;
   atendidoPor?: string;
   data: string;
+  status?: AtendimentoStatus;
   checklist: AtendimentoChecklist;
   ph?: string;
   cloro?: string;

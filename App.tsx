@@ -413,6 +413,13 @@ function AppContent() {
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
 
   useEffect(() => {
+    if (currentScreen === "attendance" && selectedAgendaItemId && !selectedAgendaItem && !agendaLoading) {
+      setSelectedAgendaItemId(null);
+      setCurrentScreen("agenda");
+    }
+  }, [agendaLoading, currentScreen, selectedAgendaItem, selectedAgendaItemId]);
+
+  useEffect(() => {
     const restrictedScreens: AppScreen[] = [
       "admin",
       "client-detail",
@@ -1334,10 +1341,16 @@ function AppContent() {
   }
 
   async function handleSaveAttendance(attendance: AttendanceRecord) {
+    const completedItems = Array.isArray(attendance.completedItems) ? attendance.completedItems : [];
+    const missingProducts = Array.isArray(attendance.missingProducts) ? attendance.missingProducts : [];
+    const productsUsedItems = Array.isArray(attendance.productsUsedItems) ? attendance.productsUsedItems : [];
     const attendanceWithEmployee: AttendanceRecord = {
       ...attendance,
+      completedItems,
       employeeId: selectedAgendaItem?.assignedEmployeeId ?? activeEmployee?.id,
       employeeName: selectedAgendaItem?.assignedEmployeeName ?? activeEmployee?.name,
+      missingProducts,
+      productsUsedItems,
     };
 
     if (!isTestMode && authenticatedUserProfile && selectedAgendaItem) {
@@ -1378,17 +1391,18 @@ function AppContent() {
           },
           ph: attendanceWithEmployee.ph,
           piscinaId,
-          produtosNecessarios: attendanceWithEmployee.missingProducts.map((item) => ({
+          status: "concluido",
+          produtosNecessarios: missingProducts.map((item) => ({
             observacao: item.observation,
             produto: item.product,
             quantidade: item.quantity,
           })),
-          produtosFaltando: attendanceWithEmployee.missingProducts.map((item) => ({
+          produtosFaltando: missingProducts.map((item) => ({
             observacao: item.observation,
             produto: item.product,
             quantidade: item.quantity,
           })),
-          produtosUtilizadosLista: attendanceWithEmployee.productsUsedItems?.map((item) => ({
+          produtosUtilizadosLista: productsUsedItems.map((item) => ({
             produto: item.product,
             quantidade: item.quantity,
             unidade: item.unit,
@@ -1413,7 +1427,7 @@ function AppContent() {
 
     setAttendances((currentAttendances) => [attendanceWithEmployee, ...currentAttendances]);
 
-    if (attendanceWithEmployee.missingProducts.length > 0) {
+    if (missingProducts.length > 0) {
       const selectedClientForAttendance = clients.find(
         (client) => client.name === attendanceWithEmployee.clientName,
       );
@@ -1425,7 +1439,7 @@ function AppContent() {
         neighborhood: selectedClientForAttendance?.neighborhood ?? "Nao informado",
         nextVisitDate: attendanceWithEmployee.attendanceDate,
         status: "pending-approval",
-        items: attendanceWithEmployee.missingProducts.map((item) => ({
+        items: missingProducts.map((item) => ({
           ...item,
           status: "pending",
         })),
@@ -1883,7 +1897,9 @@ function AppContent() {
         <ClientDetailScreen
           client={selectedClient}
           agendaItems={agendaItems.filter((item) => item.clientId === selectedClient.id || item.clientName === selectedClient.name)}
-          attendances={attendances.filter((attendance) => attendance.clientName === selectedClient.name)}
+          attendances={attendances.filter(
+            (attendance) => attendance.clienteId === selectedClient.id || attendance.clientName === selectedClient.name,
+          )}
           canViewFinancialData={canViewCommercialData}
           onAddPool={() => void handleOpenNewPool(selectedClient.id)}
           onBack={() => setCurrentScreen("clients")}
@@ -2968,6 +2984,8 @@ function mapFirestoreAttendanceToAttendanceRecord(
 ): AttendanceRecord {
   const client = currentClients.find((currentClient) => currentClient.id === attendance.clienteId);
   const pool = currentPools.find((currentPool) => currentPool.id === attendance.piscinaId);
+  const missingProducts = attendance.produtosNecessarios ?? attendance.produtosFaltando ?? [];
+  const productsUsedItems = attendance.produtosUtilizadosLista ?? [];
 
   return {
     afterPhotoUri: attendance.fotoDepoisUrl ?? attendance.fotoDepoisPlaceholder ?? "",
@@ -2983,24 +3001,25 @@ function mapFirestoreAttendanceToAttendanceRecord(
     empresaId: attendance.empresaId,
     id: attendance.id,
     missingProducts:
-      (attendance.produtosNecessarios ?? attendance.produtosFaltando)?.map((item, index) => ({
+      missingProducts.map((item, index) => ({
         id: `${attendance.id}-missing-${index}`,
         observation: item.observacao ?? "",
-        product: item.produto,
-        quantity: item.quantidade,
-      })) ?? [],
+        product: safeText(item.produto, "Produto nao informado"),
+        quantity: safeText(item.quantidade, "Quantidade nao informada"),
+      })),
     observations: attendance.observacoes ?? "",
     ph: attendance.parametrosAgua?.ph ?? attendance.ph ?? "",
     piscinaId: attendance.piscinaId,
     poolName: safeText(pool?.nome, "Piscina nao encontrada"),
     productsUsed: attendance.produtosUtilizados ?? "",
     productsUsedItems:
-      attendance.produtosUtilizadosLista?.map((item, index) => ({
+      productsUsedItems.map((item, index) => ({
         id: `${attendance.id}-used-${index}`,
-        product: item.produto,
-        quantity: item.quantidade,
+        product: safeText(item.produto, "Produto nao informado"),
+        quantity: safeText(item.quantidade),
         unit: item.unidade ?? "",
-      })) ?? [],
+      })),
+    status: attendance.status ?? "concluido",
     temperature: attendance.parametrosAgua?.temperatura ?? "",
     visitaId: attendance.visitaId,
     waterParameters: {
@@ -3012,20 +3031,20 @@ function mapFirestoreAttendanceToAttendanceRecord(
   };
 }
 
-function mapChecklistLabels(checklist: AtendimentoChecklist) {
+function mapChecklistLabels(checklist?: Partial<AtendimentoChecklist>) {
   const labels: string[] = [];
 
-  if (checklist.aspiracao) labels.push("Aspiracao");
-  if (checklist.medicaoPh) labels.push("Medicao de pH");
-  if (checklist.medicaoCloro) labels.push("Medicao de cloro");
-  if (checklist.escovarParedes) labels.push("Escovar paredes");
-  if (checklist.limparBorda) labels.push("Limpar borda");
-  if (checklist.limparCestos) labels.push("Limpar cestos");
-  if (checklist.retrolavarFiltro) labels.push("Retrolavar filtro");
-  if (checklist.completarNivelAgua) labels.push("Completar nivel da agua");
-  if (checklist.verificarCasaMaquinas) labels.push("Verificar casa de maquinas");
-  if (checklist.verificarVazamentos) labels.push("Verificar vazamentos");
-  if (checklist.conferirEquipamentos) labels.push("Conferir equipamentos");
+  if (checklist?.aspiracao) labels.push("Aspiracao");
+  if (checklist?.medicaoPh) labels.push("Medicao de pH");
+  if (checklist?.medicaoCloro) labels.push("Medicao de cloro");
+  if (checklist?.escovarParedes) labels.push("Escovar paredes");
+  if (checklist?.limparBorda) labels.push("Limpar borda");
+  if (checklist?.limparCestos) labels.push("Limpar cestos");
+  if (checklist?.retrolavarFiltro) labels.push("Retrolavar filtro");
+  if (checklist?.completarNivelAgua) labels.push("Completar nivel da agua");
+  if (checklist?.verificarCasaMaquinas) labels.push("Verificar casa de maquinas");
+  if (checklist?.verificarVazamentos) labels.push("Verificar vazamentos");
+  if (checklist?.conferirEquipamentos) labels.push("Conferir equipamentos");
 
   return labels;
 }
