@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 
 import { authService } from "../services/auth-service";
 import { usuariosRepository } from "../repositories/usuarios-repository";
+import { getMissingFirebaseEnvVars, isFirebaseConfigured } from "../firebase/config";
 import { isFirstAccessCreationInProgress } from "../services/first-access-service";
 import type { Usuario, UsuarioPerfil } from "../types/usuario";
 
@@ -62,35 +63,52 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = authService.observarUsuario((firebaseUser) => {
-      void (async () => {
-        setLoading(true);
+    if (!isFirebaseConfigured()) {
+      setUser(null);
+      setUsuario(null);
+      setErrorMessage(getMissingFirebaseConfigMessage());
+      setLoading(false);
+      return;
+    }
 
-        try {
-          if (!firebaseUser) {
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      unsubscribe = authService.observarUsuario((firebaseUser) => {
+        void (async () => {
+          setLoading(true);
+
+          try {
+            if (!firebaseUser) {
+              setUser(null);
+              setUsuario(null);
+              return;
+            }
+
+            await loadUsuarioProfile(firebaseUser);
+          } catch (error) {
+            if (firebaseUser && isFirstAccessCreationInProgress() && isMissingUserProfileError(error)) {
+              setUser(firebaseUser);
+              setUsuario(null);
+              setErrorMessage(null);
+              return;
+            }
+
             setUser(null);
             setUsuario(null);
-            return;
+            setErrorMessage(getAuthContextErrorMessage(error));
+            await authService.logout().catch(() => undefined);
+          } finally {
+            setLoading(false);
           }
-
-          await loadUsuarioProfile(firebaseUser);
-        } catch (error) {
-          if (firebaseUser && isFirstAccessCreationInProgress() && isMissingUserProfileError(error)) {
-            setUser(firebaseUser);
-            setUsuario(null);
-            setErrorMessage(null);
-            return;
-          }
-
-          setUser(null);
-          setUsuario(null);
-          setErrorMessage(getAuthContextErrorMessage(error));
-          await authService.logout().catch(() => undefined);
-        } finally {
-          setLoading(false);
-        }
-      })();
-    });
+        })();
+      });
+    } catch (error) {
+      setUser(null);
+      setUsuario(null);
+      setErrorMessage(getAuthContextErrorMessage(error));
+      setLoading(false);
+    }
 
     return unsubscribe;
   }, [loadUsuarioProfile]);
@@ -184,6 +202,10 @@ function getAuthContextErrorMessage(error: unknown) {
   }
 
   return "Não foi possível autenticar.";
+}
+
+function getMissingFirebaseConfigMessage() {
+  return `Firebase nao configurado para este build. Cadastre no EAS preview: ${getMissingFirebaseEnvVars().join(", ")}.`;
 }
 
 function isMissingUserProfileError(error: unknown) {

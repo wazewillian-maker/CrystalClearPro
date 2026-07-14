@@ -160,6 +160,7 @@ export default function App() {
 
 function AppContent() {
   const {
+    errorMessage: authErrorMessage,
     loading: authLoading,
     login: loginWithFirebase,
     logout: logoutFromFirebase,
@@ -1910,6 +1911,7 @@ function AppContent() {
 
       {currentScreen === "login" ? (
         <LoginScreen
+          authErrorMessage={authErrorMessage}
           firstAccessMessage={firstAccessMessage}
           onFirebaseLogin={handleFirebaseLogin}
           onLogin={handleLogin}

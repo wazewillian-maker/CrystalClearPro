@@ -18,6 +18,7 @@ import colors from "../theme/colors";
 export type TestUserRole = "owner" | "staff" | "client";
 
 type LoginScreenProps = {
+  authErrorMessage?: string | null;
   firstAccessMessage?: string;
   onFirebaseLogin: (email: string, senha: string) => Promise<void>;
   onLogin: (role: TestUserRole) => void;
@@ -49,6 +50,7 @@ const roleOptions: Array<{
 ];
 
 export function LoginScreen({
+  authErrorMessage,
   firstAccessMessage,
   onFirebaseLogin,
   onLogin,
@@ -63,6 +65,15 @@ export function LoginScreen({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState<TestUserRole>("owner");
+
+  React.useEffect(() => {
+    if (!authErrorMessage) {
+      return;
+    }
+
+    setFeedbackTone("error");
+    setFeedbackMessage(authErrorMessage);
+  }, [authErrorMessage]);
 
   React.useEffect(() => {
     if (!firstAccessMessage) {

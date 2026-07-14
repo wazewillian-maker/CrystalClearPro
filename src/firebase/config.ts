@@ -11,18 +11,27 @@ const requiredFirebaseEnv = [
   "EXPO_PUBLIC_FIREBASE_APP_ID",
 ] as const;
 
+const firebaseEnvValues: Record<(typeof requiredFirebaseEnv)[number], string | undefined> = {
+  EXPO_PUBLIC_FIREBASE_API_KEY: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  EXPO_PUBLIC_FIREBASE_PROJECT_ID: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  EXPO_PUBLIC_FIREBASE_APP_ID: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+};
+
 export const firebaseConfig: FirebaseOptions = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "",
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? "",
+  apiKey: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
+  authDomain: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
+  projectId: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "",
+  storageBucket: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
+  messagingSenderId: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
+  appId: firebaseEnvValues.EXPO_PUBLIC_FIREBASE_APP_ID ?? "",
   measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
 export function getMissingFirebaseEnvVars() {
-  return requiredFirebaseEnv.filter((envName) => !process.env[envName]);
+  return requiredFirebaseEnv.filter((envName) => !firebaseEnvValues[envName]);
 }
 
 export function isFirebaseConfigured() {
