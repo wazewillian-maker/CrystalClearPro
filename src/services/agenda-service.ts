@@ -2,14 +2,22 @@ import { visitasRepository } from "../repositories/visitas-repository";
 import type { WeekDay } from "../types/client";
 import type { Piscina } from "../types/piscina";
 import type { Visita } from "../types/visita";
+import { parseLocalDate } from "../utils/local-date";
 
-const SMART_AGENDA_DAYS_AHEAD = 30;
+const SMART_AGENDA_DAYS_AHEAD = 28;
 const allWeekDays: WeekDay[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 export type AgendaRefreshResult = {
   createdCount: number;
   ignoredReasons: string[];
   removedCount: number;
+};
+
+type AgendaSyncInput = {
+  empresaId: string;
+  existingVisits: Visita[];
+  pools: Piscina[];
+  validClientIds: Set<string>;
 };
 
 export const agendaService = {
@@ -29,21 +37,117 @@ export const agendaService = {
     return visitasRepository.update(id, data);
   },
 
+  async syncFutureVisits({
+    empresaId,
+    existingVisits,
+    pools,
+    validClientIds,
+  }: AgendaSyncInput): Promise<AgendaRefreshResult> {
+    const traceId = createSmartAgendaTraceId();
+    const existingKeys = new Set(
+      existingVisits.map((visit) =>
+        getVisitDedupKey(visit.empresaId, visit.piscinaId, visit.data),
+      ),
+    );
+    const manualVisits = existingVisits.filter((visit) => visit.origem === "manual");
+    const automaticVisits = existingVisits.filter((visit) => visit.origem !== "manual");
+    let createdCount = 0;
+    const ignoredReasons: string[] = [];
+
+    console.info("[Agenda Automatica] sincronizacao iniciada", {
+      dataAtualLocal: formatDateLabel(startOfDate(new Date())),
+      janelaDias: SMART_AGENDA_DAYS_AHEAD,
+      piscinasEncontradas: pools.length,
+      traceId,
+      visitasAutomaticasExistentes: automaticVisits.length,
+      visitasManuaisExistentes: manualVisits.length,
+    });
+
+    for (const originalPool of pools) {
+      const pool = normalizePoolForSmartAgenda(originalPool);
+      const reasons = getPoolIgnoredReasons(pool);
+
+      if (!validClientIds.has(pool.clienteId)) {
+        reasons.push("Cliente vinculado nao existe na lista ativa.");
+      }
+
+      if (reasons.length > 0) {
+        ignoredReasons.push(...reasons.map((reason) => `${pool.id}: ${reason}`));
+        console.info("[Agenda Automatica] piscina ignorada", {
+          diasAtendimento: pool.diasAtendimento ?? [],
+          motivos: reasons,
+          piscinaId: pool.id,
+          traceId,
+        });
+        continue;
+      }
+
+      const dates = generateSmartVisitDates(pool);
+      const poolVisits = existingVisits.filter((visit) => visit.piscinaId === pool.id);
+      const funcionarioId = getPoolResponsibleId(pool, poolVisits);
+
+      console.info("[Agenda Automatica] piscina analisada", {
+        datasCalculadas: dates,
+        diasAtendimento: pool.diasAtendimento ?? [],
+        piscinaId: pool.id,
+        plano: pool.planoAtendimento,
+        traceId,
+      });
+
+      for (const data of dates) {
+        const dedupKey = getVisitDedupKey(empresaId, pool.id, data);
+
+        if (existingKeys.has(dedupKey)) {
+          console.info("[Agenda Automatica] piscina ignorada", {
+            data,
+            motivo: "Ja existe visita manual ou automatica para piscina + data.",
+            piscinaId: pool.id,
+            traceId,
+          });
+          continue;
+        }
+
+        await visitasRepository.createAutomatic(getAutomaticVisitId(pool.id, data), {
+          clienteId: pool.clienteId,
+          data,
+          empresaId,
+          funcionarioId: funcionarioId ?? null,
+          origem: "agenda-inteligente",
+          piscinaId: pool.id,
+          responsavelNome: funcionarioId ? null : "Sem responsavel",
+          status: "pendente",
+        });
+        existingKeys.add(dedupKey);
+        createdCount += 1;
+        console.info("[Agenda Automatica] nova visita criada", {
+          data,
+          piscinaId: pool.id,
+          traceId,
+        });
+      }
+    }
+
+    console.info("[Agenda Automatica] sincronizacao concluida", {
+      novasVisitasCriadas: createdCount,
+      piscinasIgnoradas: ignoredReasons.length,
+      traceId,
+    });
+
+    return { createdCount, ignoredReasons, removedCount: 0 };
+  },
+
   async refreshFutureVisitsForPool(empresaId: string, pool: Piscina): Promise<AgendaRefreshResult> {
     const traceId = createSmartAgendaTraceId();
     console.info("[Agenda Inteligente] piscina criada/editada", getPoolDiagnostic(pool, traceId));
 
     try {
       const existingVisits = await visitasRepository.listByPiscina(empresaId, pool.id);
-      const removal = await removeFuturePendingVisits(existingVisits, empresaId, pool.id, traceId);
-      const remainingVisits = existingVisits.filter((visit) => !removal.removedVisitIds.has(visit.id));
-      const creation = await createFutureVisitsForPool(empresaId, pool, remainingVisits, traceId);
-
-      return {
-        createdCount: creation.createdCount,
-        ignoredReasons: creation.ignoredReasons,
-        removedCount: removal.removedCount,
-      };
+      return agendaService.syncFutureVisits({
+        empresaId,
+        existingVisits,
+        pools: [pool],
+        validClientIds: new Set([pool.clienteId]),
+      });
     } catch (error) {
       console.error("[Agenda Inteligente] erro ao atualizar visitas futuras", {
         error,
@@ -78,6 +182,28 @@ export const agendaService = {
     } finally {
       console.info("[Agenda Inteligente] limpeza de exclusao finalizada", { piscinaId, traceId });
     }
+  },
+
+  async removeAllFutureOpenVisitsForPool(empresaId: string, piscinaId: string): Promise<number> {
+    const existingVisits = await visitasRepository.listByPiscina(empresaId, piscinaId);
+    const today = startOfDate(new Date());
+    const visitsToRemove = existingVisits.filter((visit) => {
+      const visitDate = parseDateLabel(visit.data);
+
+      return Boolean(
+        visit.empresaId === empresaId &&
+          visit.piscinaId === piscinaId &&
+          visit.status !== "concluida" &&
+          visitDate &&
+          visitDate >= today,
+      );
+    });
+
+    for (const visit of visitsToRemove) {
+      await visitasRepository.delete(visit.id);
+    }
+
+    return visitsToRemove.length;
   },
 };
 
@@ -417,7 +543,16 @@ function getPoolResponsibleId(pool: Piscina, existingVisits: Visita[]) {
 }
 
 function getVisitDedupKey(empresaId: string, piscinaId: string, data: string) {
-  return `${empresaId}__${piscinaId}__${data}`;
+  const localDate = parseDateLabel(data);
+  return `${empresaId}__${piscinaId}__${localDate ? formatDateLabel(localDate) : data.trim()}`;
+}
+
+function getAutomaticVisitId(piscinaId: string, data: string) {
+  const localDate = parseDateLabel(data);
+  const dateKey = localDate
+    ? `${localDate.getFullYear()}${String(localDate.getMonth() + 1).padStart(2, "0")}${String(localDate.getDate()).padStart(2, "0")}`
+    : data.replace(/\D/g, "");
+  return `auto_${piscinaId}_${dateKey}`;
 }
 
 function getPoolDiagnostic(pool: Piscina, traceId: string) {
@@ -440,18 +575,8 @@ function formatDateLabel(date: Date) {
 }
 
 function parseDateLabel(value?: string | null) {
-  if (!value || value === "Hoje") {
-    return value === "Hoje" ? startOfDate(new Date()) : null;
-  }
-
-  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-
-  if (brDate) {
-    return startOfDate(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : startOfDate(parsed);
+  const parsed = parseLocalDate(value);
+  return parsed ? startOfDate(parsed) : null;
 }
 
 function sortDateLabels(left: string, right: string) {

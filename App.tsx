@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -24,10 +24,12 @@ import { AuthProvider, useAuthContext } from "./src/contexts/auth-context";
 import { clientesRepository } from "./src/repositories/clientes-repository";
 import { funcionariosRepository } from "./src/repositories/funcionarios-repository";
 import { piscinasRepository } from "./src/repositories/piscinas-repository";
+import { usuariosRepository } from "./src/repositories/usuarios-repository";
 import { visitasRepository } from "./src/repositories/visitas-repository";
 import { firstAccessService } from "./src/services/first-access-service";
 import { agendaService } from "./src/services/agenda-service";
 import { atendimentoService } from "./src/services/atendimento-service";
+import { getScheduledAgendaItems } from "./src/services/scheduled-visits-service";
 import { storageService } from "./src/services/storage-service";
 import colors from "./src/theme/colors";
 import type { AgendaItem, AgendaStatus } from "./src/types/agenda";
@@ -41,8 +43,9 @@ import type { Funcionario } from "./src/types/funcionario";
 import type { Piscina, PiscinaFormData, PlanoAtendimento } from "./src/types/piscina";
 import type { UsuarioPerfil } from "./src/types/usuario";
 import type { Visita, VisitaOrigem, VisitaStatus } from "./src/types/visita";
+import { getAgendaItemsForLocalDay } from "./src/utils/daily-agenda";
+import { isSameLocalDay, parseLocalDate } from "./src/utils/local-date";
 import {
-  initialProductRequests,
   type ProductRequest,
   type ProductRequestItem,
   type ProductRequestItemStatus,
@@ -58,75 +61,6 @@ type PoolReferencePhotoUploadResult = {
   fotoReferenciaUrl?: string;
   warningMessage?: string;
 };
-
-const initialAgendaItems: AgendaItem[] = [
-  {
-    id: "1",
-    clientName: "Condominio Lago Azul",
-    neighborhood: "Jardim Europa",
-    address: "Rua das Aguas, 120",
-    visitDate: "Hoje",
-    data: "Hoje",
-    assignedEmployeeId: "owner-willian",
-    assignedEmployeeName: "Willian/Dono",
-    funcionarioId: "owner-willian",
-    origem: "Automatica",
-    status: "pending",
-  },
-  {
-    id: "2",
-    clientName: "Marina Costa",
-    neighborhood: "Vila Mariana",
-    address: "Avenida Primavera, 88",
-    visitDate: "Hoje",
-    data: "Hoje",
-    assignedEmployeeId: "partner-demo",
-    assignedEmployeeName: "Socio Demo",
-    funcionarioId: "partner-demo",
-    origem: "Automatica",
-    status: "pending",
-  },
-  {
-    id: "3",
-    clientName: "Academia Aqua Fit",
-    neighborhood: "Centro",
-    address: "Rua do Mercado, 40",
-    visitDate: "Hoje",
-    data: "Hoje",
-    assignedEmployeeId: "staff-demo",
-    assignedEmployeeName: "Funcionario Demo",
-    funcionarioId: "staff-demo",
-    origem: "Automatica",
-    status: "in-progress",
-  },
-];
-
-const initialEmployees: Employee[] = [
-  {
-    email: "willian@crystalclear.com",
-    id: "owner-willian",
-    name: "Willian/Dono",
-    phone: "(11) 99999-0000",
-    role: "owner",
-    status: "active",
-  },
-  {
-    email: "socio@crystalclear.com",
-    id: "partner-demo",
-    name: "Socio Demo",
-    phone: "(11) 98888-0000",
-    role: "partner",
-    status: "active",
-  },
-  {
-    email: "funcionario@crystalclear.com",
-    id: "staff-demo",
-    name: "Funcionario Demo",
-    phone: "(11) 97777-0000",
-    role: "staff",
-    status: "active",
-  },
-];
 
 type AppScreen =
   | "login"
@@ -178,12 +112,13 @@ function AppContent() {
   const [clientsLoading, setClientsLoading] = useState(false);
   const [restrictedAccessMessage, setRestrictedAccessMessage] = useState("");
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
-  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(initialAgendaItems);
+  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [agendaError, setAgendaError] = useState("");
   const [agendaLoading, setAgendaLoading] = useState(false);
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [orphanVisits, setOrphanVisits] = useState<Visita[]>([]);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatuses>({});
-  const [productRequests, setProductRequests] = useState<ProductRequest[]>(initialProductRequests);
+  const [productRequests, setProductRequests] = useState<ProductRequest[]>([]);
   const [selectedAgendaItemId, setSelectedAgendaItemId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
@@ -192,7 +127,17 @@ function AppContent() {
   const selectedClientPools = selectedClientId
     ? pools.filter((pool) => pool.clienteId === selectedClientId && pool.status !== "inativa")
     : [];
-  const selectedAgendaItem = agendaItems.find((item) => item.id === selectedAgendaItemId);
+  const scheduledAgendaItems = useMemo(
+    () =>
+      getScheduledAgendaItems({
+        clients,
+        employees,
+        persistedVisits: agendaItems,
+        pools,
+      }),
+    [agendaItems, clients, employees, pools],
+  );
+  const selectedAgendaItem = scheduledAgendaItems.find((item) => item.id === selectedAgendaItemId);
   const selectedAgendaClient = clients.find(
     (client) => client.id === selectedAgendaItem?.clientId || client.name === selectedAgendaItem?.clientName,
   );
@@ -207,13 +152,22 @@ function AppContent() {
   const canViewCommercialData = canAccessClients;
   const isEmployeeProfileView = isOperationalStaffView;
   const activeEmployee =
-    authenticatedUserProfile?.funcionarioId
-      ? employees.find((employee) => employee.id === authenticatedUserProfile.funcionarioId) ?? {
+    authenticatedUserProfile && authenticatedUserProfile.perfil !== "cliente"
+      ? employees.find(
+          (employee) =>
+            employee.id === authenticatedUserProfile.funcionarioId ||
+            employee.email === authenticatedUserProfile.email,
+        ) ?? {
           email: authenticatedUserProfile.email,
-          id: authenticatedUserProfile.funcionarioId,
+          id: authenticatedUserProfile.funcionarioId ?? authenticatedUserProfile.uid,
           name: authenticatedUserProfile.nome,
           phone: "",
-          role: authenticatedUserProfile.perfil === "socio" ? ("partner" as const) : ("staff" as const),
+          role:
+            authenticatedUserProfile.perfil === "dono"
+              ? ("owner" as const)
+              : authenticatedUserProfile.perfil === "socio"
+                ? ("partner" as const)
+                : ("staff" as const),
           status: "active" as const,
         }
       : activeRole === "owner"
@@ -221,14 +175,18 @@ function AppContent() {
       : employees.find((employee) => employee.status === "active" && employee.role !== "owner") ?? employees[0];
   const visibleAgendaItems =
     isOperationalStaffView && activeEmployee
-      ? agendaItems.filter((item) => isAgendaItemAssignedToEmployee(item, activeEmployee.id))
-      : agendaItems;
+      ? scheduledAgendaItems.filter((item) => isAgendaItemAssignedToEmployee(item, activeEmployee.id))
+      : scheduledAgendaItems;
   const visibleAttendances =
     isOperationalStaffView && activeEmployee
       ? attendances.filter((attendance) =>
           isAttendanceVisibleForEmployee(attendance, visibleAgendaItems, activeEmployee.id),
         )
       : attendances;
+  const todayVisibleAgendaItems = getAgendaItemsForLocalDay(visibleAgendaItems);
+  const todayCompletedAttendances = visibleAttendances.filter((attendance) =>
+    isSameLocalDay(attendance.completedAt ?? attendance.attendanceDate),
+  );
   const visibleProductRequests =
     isOperationalStaffView && activeEmployee
       ? productRequests.filter((request) => isProductRequestVisibleForEmployee(request, visibleAgendaItems))
@@ -256,7 +214,7 @@ function AppContent() {
         request.items.filter((item) => item.status === "approved" || item.status === "delivered").length,
       0,
     ),
-    completedAttendances: visibleAttendances.length,
+    completedAttendances: todayCompletedAttendances.length,
     registeredPhotos: visibleAttendances.reduce(
       (total, attendance) =>
         total + (attendance.beforePhotoUri ? 1 : 0) + (attendance.afterPhotoUri ? 1 : 0),
@@ -280,14 +238,14 @@ function AppContent() {
       id: "agenda",
       label: "Piscinas do dia",
       tone: colors.primary,
-      value: String(visibleAgendaItems.length),
+      value: String(todayVisibleAgendaItems.length),
     },
     {
       helper: "Atendimentos salvos no historico",
       id: "completed",
       label: "Atendimentos concluidos",
       tone: colors.success,
-      value: String(visibleAttendances.length),
+      value: String(todayCompletedAttendances.length),
     },
     {
       helper: "Itens aprovados ainda nao entregues",
@@ -319,8 +277,8 @@ function AppContent() {
     activeRole === "staff" && activeEmployee
       ? `${getProfileLabel(activeRole)} - ${activeEmployee.name}`
       : getProfileLabel(activeRole);
-  const testClient = clients[0] ?? fallbackTestClient;
-  const testClientPaymentStatus = paymentStatuses[testClient.id] ?? "pending";
+  const testClient = clients[0];
+  const testClientPaymentStatus = testClient ? paymentStatuses[testClient.id] ?? "pending" : "pending";
 
   async function checkFirstAccessAvailability() {
     try {
@@ -487,13 +445,6 @@ function AppContent() {
       setCurrentScreen("login");
     }
   }, [authLoading, authenticatedUserProfile, currentScreen, isTestMode]);
-
-  function handleLogin(role: TestUserRole) {
-    setIsTestMode(true);
-    setActiveRole(role);
-    setRestrictedAccessMessage("");
-    setCurrentScreen(role === "client" ? "client-area" : "home");
-  }
 
   async function handleFirebaseLogin(email: string, senha: string) {
     if (!email || !senha) {
@@ -673,22 +624,59 @@ function AppContent() {
       }
 
       const funcionarioId = profile.funcionarioId;
-      const firestoreVisits =
+      let [firestoreVisits, firestoreClients, firestorePools] = await Promise.all([
         profile.perfil === "funcionario" && funcionarioId
-          ? await visitasRepository.listByFuncionario(profile.empresaId, funcionarioId)
-          : await visitasRepository.listByEmpresa(profile.empresaId);
-      let agendaClients = clients;
-      let agendaPools = pools;
-
+          ? visitasRepository.listByFuncionario(profile.empresaId, funcionarioId)
+          : visitasRepository.listByEmpresa(profile.empresaId),
+        clientesRepository.listByEmpresa(profile.empresaId),
+        piscinasRepository.listByEmpresa(profile.empresaId),
+      ]);
       logSmartAgendaStep(diagnosticTraceId, "Visitas carregadas para atualizacao da interface.", {
         totalVisitas: firestoreVisits.length,
       });
 
-      if (profile.perfil === "funcionario") {
-        const operationalData = await loadOperationalDataForVisits(firestoreVisits);
-        agendaClients = operationalData.clients;
-        agendaPools = operationalData.pools;
+      const operationalData = buildOperationalData(
+        firestoreClients,
+        firestorePools,
+        profile.empresaId,
+      );
+      const agendaClients = operationalData.clients;
+      const agendaPools = operationalData.pools;
+      const validClientIds = new Set(agendaClients.map((client) => client.id));
+
+      if (profile.perfil !== "funcionario" && profile.perfil !== "cliente") {
+        const syncResult = await agendaService.syncFutureVisits({
+          empresaId: profile.empresaId,
+          existingVisits: firestoreVisits,
+          pools: agendaPools,
+          validClientIds,
+        });
+
+        logSmartAgendaStep(diagnosticTraceId, "Sincronizacao automatica persistida concluida.", {
+          novasVisitasCriadas: syncResult.createdCount,
+          piscinasIgnoradas: syncResult.ignoredReasons.length,
+        });
+
+        if (syncResult.createdCount > 0) {
+          firestoreVisits = await visitasRepository.listByEmpresa(profile.empresaId);
+        }
       }
+
+      const validPoolsById = new Map(agendaPools.map((pool) => [pool.id, pool]));
+      const validVisits = firestoreVisits.filter((visit) => {
+        const pool = validPoolsById.get(visit.piscinaId);
+        return Boolean(
+          visit.id &&
+            visit.clienteId &&
+            visit.piscinaId &&
+            validClientIds.has(visit.clienteId) &&
+            pool &&
+            pool.clienteId === visit.clienteId,
+        );
+      });
+      const validVisitIds = new Set(validVisits.map((visit) => visit.id));
+      const nextOrphanVisits = firestoreVisits.filter((visit) => !validVisitIds.has(visit.id));
+      setOrphanVisits(nextOrphanVisits);
 
       if (profile.perfil === "funcionario") {
         setClients((currentClients) =>
@@ -698,11 +686,13 @@ function AppContent() {
       }
 
       logSmartAgendaStep(diagnosticTraceId, "Antes da atualizacao da interface da agenda.", {
-        totalVisitas: firestoreVisits.length,
+        totalOrfas: nextOrphanVisits.length,
+        totalVisitas: validVisits.length,
       });
-      setAgendaItems(firestoreVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees, agendaPools)));
+      setAgendaItems(validVisits.map((visit) => mapFirestoreVisitToAgendaItem(visit, agendaClients, employees, agendaPools)));
       logSmartAgendaStep(diagnosticTraceId, "Depois da atualizacao da interface da agenda.", {
-        totalVisitas: firestoreVisits.length,
+        totalOrfas: nextOrphanVisits.length,
+        totalVisitas: validVisits.length,
       });
     } catch (error) {
       logSmartAgendaError(diagnosticTraceId, "Erro ao carregar agenda Firestore.", error, {
@@ -716,27 +706,29 @@ function AppContent() {
     }
   }
 
-  async function loadOperationalDataForVisits(visits: Visita[]) {
-    const uniqueClienteIds = Array.from(new Set(visits.map((visit) => visit.clienteId).filter(Boolean)));
-    const uniquePiscinaIds = Array.from(new Set(visits.map((visit) => visit.piscinaId).filter(Boolean)));
-    const [visitClients, visitPools] = await Promise.all([
-      Promise.all(uniqueClienteIds.map((clienteId) => clientesRepository.getById(clienteId))),
-      Promise.all(uniquePiscinaIds.map((piscinaId) => piscinasRepository.getById(piscinaId))),
-    ]);
-    const validPools = visitPools.filter((pool): pool is Piscina => Boolean(pool));
-    const validClients = visitClients.filter(
-      (client): client is Cliente => client !== null && client.status !== "inativo",
+  function buildOperationalData(
+    companyClients: Cliente[],
+    companyPools: Piscina[],
+    empresaId: string,
+  ) {
+    const validPools = companyPools.filter(
+      (pool) => pool.empresaId === empresaId && pool.status !== "inativa",
     );
+    const validClients = companyClients.filter(
+      (client) => client.empresaId === empresaId && client.status !== "inativo",
+    );
+    const validClientIds = new Set(validClients.map((client) => client.id));
+    const linkedValidPools = validPools.filter((pool) => validClientIds.has(pool.clienteId));
 
     return {
       clients: validClients
-      .map((client) =>
-        mapFirestoreClientToOperationalClient(
-          client,
-          validPools.find((pool) => pool.clienteId === client.id && pool.status !== "inativa"),
-        ),
+        .map((client) =>
+          mapFirestoreClientToOperationalClient(
+            client,
+            linkedValidPools.find((pool) => pool.clienteId === client.id),
+          ),
       ),
-      pools: validPools.filter((pool) => pool.status !== "inativa").map(sanitizePoolReferencePhoto),
+      pools: linkedValidPools.map(sanitizePoolReferencePhoto),
     };
   }
 
@@ -1177,10 +1169,8 @@ function AppContent() {
 
     if (!isTestMode && (authenticatedUserProfile?.perfil === "dono" || authenticatedUserProfile?.perfil === "socio")) {
       try {
-        await Promise.all([
-          agendaService.removeFuturePendingVisitsForPool(authenticatedUserProfile.empresaId, poolId),
-          piscinasRepository.delete(poolId),
-        ]);
+        await agendaService.removeAllFutureOpenVisitsForPool(authenticatedUserProfile.empresaId, poolId);
+        await piscinasRepository.delete(poolId);
 
         if (pool.fotoReferenciaPath) {
           await storageService.remover(pool.fotoReferenciaPath).catch((error: unknown) => {
@@ -1194,7 +1184,7 @@ function AppContent() {
 
     setPools((currentPools) => currentPools.filter((currentPool) => currentPool.id !== poolId));
     setAgendaItems((currentItems) =>
-      currentItems.filter((item) => item.piscinaId !== poolId || item.status === "finished"),
+      currentItems.filter((item) => item.piscinaId !== poolId),
     );
     setClients((currentClients) =>
       currentClients.map((client) =>
@@ -1393,16 +1383,76 @@ function AppContent() {
     }
 
     if (!isTestMode && authenticatedUserProfile?.perfil === "dono") {
-      await clientesRepository.update(selectedClientId, { status: "inativo" }).catch((error: unknown) => {
-        console.warn("Nao foi possivel inativar cliente no Firestore.", error);
-      });
+      try {
+        const [clientPools, companyUsers] = await Promise.all([
+          piscinasRepository.listByCliente(selectedClientId),
+          usuariosRepository.listByEmpresa(authenticatedUserProfile.empresaId),
+        ]);
+
+        for (const pool of clientPools) {
+          await agendaService.removeAllFutureOpenVisitsForPool(authenticatedUserProfile.empresaId, pool.id);
+          await piscinasRepository.delete(pool.id);
+
+          if (pool.fotoReferenciaPath) {
+            await storageService.remover(pool.fotoReferenciaPath).catch((error: unknown) => {
+              console.warn("Nao foi possivel excluir a foto de referencia da piscina.", error);
+            });
+          }
+        }
+
+        const linkedUsers = companyUsers.filter((user) => user.clienteId === selectedClientId);
+        await Promise.all(
+          linkedUsers.map((user) =>
+            usuariosRepository.update(user.id, {
+              ativo: false,
+              clienteId: null,
+              status: "inativo",
+            }),
+          ),
+        );
+        await clientesRepository.update(selectedClientId, { status: "inativo" });
+      } catch (error) {
+        throw new Error(getFirestoreFriendlyError(error, "Nao foi possivel excluir o cliente e seus vinculos."));
+      }
     }
 
+    const deletedClientPoolIds = new Set(
+      pools.filter((pool) => pool.clienteId === selectedClientId).map((pool) => pool.id),
+    );
+    setPools((currentPools) => currentPools.filter((pool) => pool.clienteId !== selectedClientId));
+    setAgendaItems((currentItems) =>
+      currentItems.filter(
+        (item) =>
+          item.clientId !== selectedClientId && !deletedClientPoolIds.has(item.piscinaId ?? ""),
+      ),
+    );
     setClients((currentClients) =>
       currentClients.filter((client) => client.id !== selectedClientId),
     );
     setSelectedClientId(null);
     setCurrentScreen("clients");
+  }
+
+  async function handleCleanOrphanVisits() {
+    if (
+      isTestMode ||
+      authenticatedUserProfile?.perfil !== "dono" ||
+      !authenticatedUserProfile.empresaId
+    ) {
+      throw new Error("Apenas o dono autenticado pode limpar visitas orfas.");
+    }
+
+    const cleanableVisits = orphanVisits.filter((visit) => visit.status !== "concluida");
+
+    for (const visit of cleanableVisits) {
+      await visitasRepository.delete(visit.id);
+    }
+
+    setOrphanVisits((currentVisits) =>
+      currentVisits.filter((visit) => visit.status === "concluida"),
+    );
+    await loadFirestoreAgenda(authenticatedUserProfile);
+    return cleanableVisits.length;
   }
 
   async function handleSaveAttendance(attendance: AttendanceRecord) {
@@ -1533,19 +1583,87 @@ function AppContent() {
         currentItems.map((item) => (item.id === selectedAgendaItemId ? { ...item, status: "finished" } : item)),
       );
     }
+
+    if (!isTestMode && authenticatedUserProfile) {
+      await loadFirestoreAgenda(authenticatedUserProfile);
+    }
+  }
+
+  async function handleOpenAgenda() {
+    setCurrentScreen("agenda");
+
+    if (!isTestMode && authenticatedUserProfile) {
+      await loadFirestoreAgenda(authenticatedUserProfile);
+    }
+  }
+
+  async function ensurePersistedAgendaItem(agendaItem: AgendaItem): Promise<AgendaItem> {
+    if (!agendaItem.virtual) {
+      return agendaItem;
+    }
+
+    const existingVisit = agendaItems.find(
+      (item) =>
+        item.piscinaId === agendaItem.piscinaId &&
+        isSameLocalDay(item.data ?? item.visitDate, agendaItem.data ?? agendaItem.visitDate),
+    );
+
+    if (existingVisit) {
+      return existingVisit;
+    }
+
+    if (!agendaItem.clientId || !agendaItem.piscinaId) {
+      throw new Error("Visita recorrente sem cliente ou piscina vinculados.");
+    }
+
+    let visitId = `local:${agendaItem.piscinaId}:${Date.now()}`;
+
+    if (!isTestMode && authenticatedUserProfile) {
+      visitId = await visitasRepository.create({
+        clienteId: agendaItem.clientId,
+        data: agendaItem.data ?? agendaItem.visitDate ?? formatDateLabel(new Date()),
+        empresaId: authenticatedUserProfile.empresaId,
+        funcionarioId: agendaItem.funcionarioId ?? null,
+        origem: "agenda-inteligente",
+        piscinaId: agendaItem.piscinaId,
+        responsavelNome: agendaItem.assignedEmployeeName ?? null,
+        status: mapAgendaStatusToVisitaStatus(agendaItem.status),
+      });
+    }
+
+    const persistedAgendaItem = {
+      ...agendaItem,
+      id: visitId,
+      virtual: false,
+    };
+    setAgendaItems((currentItems) => [...currentItems, persistedAgendaItem]);
+    return persistedAgendaItem;
   }
 
   async function handleUpdateAgendaStatus(agendaItemId: string, status: AgendaStatus) {
-    const agendaItem = agendaItems.find((item) => item.id === agendaItemId);
+    const agendaItem = scheduledAgendaItems.find((item) => item.id === agendaItemId);
 
     if (isEmployeeProfileView && (!activeEmployee || !agendaItem || !isAgendaItemAssignedToEmployee(agendaItem, activeEmployee.id))) {
       setAgendaError("Voce so pode alterar visitas atribuidas a voce.");
       return;
     }
 
+    if (!agendaItem) {
+      return;
+    }
+
+    let persistedAgendaItem = agendaItem;
+
+    try {
+      persistedAgendaItem = await ensurePersistedAgendaItem(agendaItem);
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel materializar a visita recorrente."));
+      return;
+    }
+
     if (!isTestMode && authenticatedUserProfile) {
       try {
-        await visitasRepository.update(agendaItemId, {
+        await visitasRepository.update(persistedAgendaItem.id, {
           status: mapAgendaStatusToVisitaStatus(status),
         });
       } catch (error) {
@@ -1555,7 +1673,7 @@ function AppContent() {
     }
 
     setAgendaItems((currentItems) =>
-      currentItems.map((item) => (item.id === agendaItemId ? { ...item, status } : item)),
+      currentItems.map((item) => (item.id === persistedAgendaItem.id ? { ...item, status } : item)),
     );
   }
 
@@ -1622,15 +1740,29 @@ function AppContent() {
       return;
     }
 
+    const agendaItem = scheduledAgendaItems.find((item) => item.id === agendaItemId);
+
+    if (!agendaItem) {
+      return;
+    }
+
+    let persistedAgendaItem = agendaItem;
+
+    try {
+      persistedAgendaItem = await ensurePersistedAgendaItem(agendaItem);
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel materializar a visita recorrente."));
+      return;
+    }
+
     if (!isTestMode && authenticatedUserProfile) {
       try {
-        await visitasRepository.update(agendaItemId, {
+        await visitasRepository.update(persistedAgendaItem.id, {
           funcionarioId: employee.id,
         });
-        const agendaItem = agendaItems.find((item) => item.id === agendaItemId);
 
-        if (agendaItem?.piscinaId) {
-          await piscinasRepository.update(agendaItem.piscinaId, {
+        if (persistedAgendaItem.piscinaId) {
+          await piscinasRepository.update(persistedAgendaItem.piscinaId, {
             funcionarioId: employee.id,
           });
         }
@@ -1642,7 +1774,7 @@ function AppContent() {
 
     setAgendaItems((currentItems) =>
       currentItems.map((item) =>
-        item.id === agendaItemId
+        item.id === persistedAgendaItem.id
           ? {
               ...item,
               assignedEmployeeId: employee.id,
@@ -1782,8 +1914,13 @@ function AppContent() {
       return;
     }
 
-    setSelectedAgendaItemId(agendaItem.id);
-    setCurrentScreen("attendance");
+    try {
+      const persistedAgendaItem = await ensurePersistedAgendaItem(agendaItem);
+      setSelectedAgendaItemId(persistedAgendaItem.id);
+      setCurrentScreen("attendance");
+    } catch (error) {
+      setAgendaError(getFirestoreFriendlyError(error, "Nao foi possivel iniciar a visita recorrente."));
+    }
   }
 
   async function handleBeginSelectedAgendaAttendance() {
@@ -1914,7 +2051,6 @@ function AppContent() {
           authErrorMessage={authErrorMessage}
           firstAccessMessage={firstAccessMessage}
           onFirebaseLogin={handleFirebaseLogin}
-          onLogin={handleLogin}
           onOpenFirstAccess={() => {
             setFirstAccessMessage("");
             setCurrentScreen("first-access");
@@ -1954,7 +2090,7 @@ function AppContent() {
           onOpenProducts={() => setCurrentScreen("products")}
           onOpenAttendance={handleOpenStandaloneAttendance}
           onOpenHistory={() => setCurrentScreen("history")}
-          onOpenAgenda={() => setCurrentScreen("agenda")}
+          onOpenAgenda={() => void handleOpenAgenda()}
           onOpenFinance={() => openScreenWithPermission("finance", canAccessFinance)}
           onOpenFirebaseDiagnostics={() => setCurrentScreen("firebase-diagnostics")}
           onOpenClientArea={() => openScreenWithPermission("client-area", !isEmployeeProfileView)}
@@ -2002,7 +2138,9 @@ function AppContent() {
       {currentScreen === "client-detail" && selectedClient && canAccessClients ? (
         <ClientDetailScreen
           client={selectedClient}
-          agendaItems={agendaItems.filter((item) => item.clientId === selectedClient.id || item.clientName === selectedClient.name)}
+          agendaItems={scheduledAgendaItems.filter(
+            (item) => item.clientId === selectedClient.id || item.clientName === selectedClient.name,
+          )}
           attendances={attendances.filter(
             (attendance) => attendance.clienteId === selectedClient.id || attendance.clientName === selectedClient.name,
           )}
@@ -2083,7 +2221,7 @@ function AppContent() {
 
       {currentScreen === "team" && canAccessAdmin ? (
         <EquipeScreen
-          agendaItems={agendaItems}
+          agendaItems={scheduledAgendaItems}
           clients={clients}
           employees={employees}
           errorMessage={agendaError}
@@ -2097,12 +2235,14 @@ function AppContent() {
 
       {currentScreen === "admin" && canAccessAdmin ? (
         <AdministracaoScreen
-          agendaItems={agendaItems}
+          agendaItems={scheduledAgendaItems}
           clients={clients}
           empresaId={authenticatedUserProfile?.empresaId}
           isOwner={canAccessAdmin}
+          orphanVisitCount={orphanVisits.length}
           onAssignClientsToEmployee={handleAssignClientsToEmployee}
           onBack={() => setCurrentScreen("home")}
+          onCleanOrphanVisits={handleCleanOrphanVisits}
           onEmployeesChanged={() => {
             if (authenticatedUserProfile?.empresaId) {
               void loadFirestoreEmployees(authenticatedUserProfile.empresaId);
@@ -2120,7 +2260,7 @@ function AppContent() {
         />
       ) : null}
 
-      {currentScreen === "client-area" && !isEmployeeProfileView ? (
+      {currentScreen === "client-area" && !isEmployeeProfileView && testClient ? (
         <ClienteAreaScreen
           attendances={attendances}
           backButtonTitle={activeRole === "client" ? "Trocar Perfil" : "Voltar"}
@@ -2826,18 +2966,8 @@ function formatDateLabel(date: Date) {
 }
 
 function parseDateLabel(value?: string) {
-  if (!value || value === "Hoje") {
-    return value === "Hoje" ? startOfDate(new Date()) : null;
-  }
-
-  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-
-  if (brDate) {
-    return startOfDate(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : startOfDate(parsed);
+  const parsed = parseLocalDate(value);
+  return parsed ? startOfDate(parsed) : null;
 }
 
 function sortDateLabels(left: string, right: string) {
@@ -3149,6 +3279,7 @@ function mapFirestoreAttendanceToAttendanceRecord(
     afterPhotoUri: attendance.fotoDepoisUrl ?? attendance.fotoDepoisPlaceholder ?? "",
     alkalinity: attendance.parametrosAgua?.alcalinidade ?? "",
     attendanceDate: safeText(attendance.data, "Data nao informada"),
+    completedAt: attendance.criadoEm?.toDate().toISOString(),
     beforePhotoUri: attendance.fotoAntesUrl ?? attendance.fotoAntesPlaceholder ?? "",
     chlorine: attendance.parametrosAgua?.cloro ?? attendance.cloro ?? "",
     clienteId: attendance.clienteId,
@@ -3293,23 +3424,6 @@ function getAuthErrorMessage(error: unknown) {
 
   return error instanceof Error ? error.message : "Nao foi possivel autenticar.";
 }
-
-const fallbackTestClient: Client = {
-  address: "Rua das Aguas, 120",
-  city: "Sao Paulo",
-  diaVencimento: 10,
-  frequency: "once",
-  id: "test-client",
-  liters: 52000,
-  name: "Condominio Lago Azul",
-  neighborhood: "Jardim Europa",
-  notes: "Cliente simulado para testar a area do cliente.",
-  phone: "(11) 99999-0000",
-  plan: "monthly",
-  poolType: "Alvenaria",
-  valorMensal: 450,
-  weekDays: ["friday"],
-};
 
 function updateRequestItem(
   request: ProductRequest,

@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { getFirebaseFirestore } from "../firebase/firestore";
 import type { Visita } from "../types/visita";
@@ -63,6 +63,19 @@ export const visitasRepository = {
 
   async create(data: Omit<Visita, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">): Promise<string> {
     const ref = await addDoc(collection(getFirebaseFirestore(), collectionName), {
+      ...limparUndefined(data as unknown as Record<string, unknown>),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return ref.id;
+  },
+
+  async createAutomatic(
+    uniqueId: string,
+    data: Omit<Visita, "id" | "createdAt" | "updatedAt" | "criadoEm" | "atualizadoEm">,
+  ): Promise<string> {
+    const ref = doc(getFirebaseFirestore(), collectionName, uniqueId);
+    await setDoc(ref, {
       ...limparUndefined(data as unknown as Record<string, unknown>),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

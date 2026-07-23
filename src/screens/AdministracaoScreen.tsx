@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { AppCard } from "../components/app-card";
@@ -19,8 +19,10 @@ type AdministracaoScreenProps = {
   clients?: Client[];
   empresaId?: string;
   isOwner: boolean;
+  orphanVisitCount?: number;
   onBack: () => void;
   onAssignClientsToEmployee?: (employeeId: string, clientIds: string[]) => Promise<void> | void;
+  onCleanOrphanVisits?: () => Promise<number>;
   onEmployeesChanged?: () => void;
 };
 
@@ -74,8 +76,10 @@ export function AdministracaoScreen({
   clients = [],
   empresaId,
   isOwner,
+  orphanVisitCount = 0,
   onAssignClientsToEmployee,
   onBack,
+  onCleanOrphanVisits,
   onEmployeesChanged,
 }: AdministracaoScreenProps) {
   const [usuarios, setUsuarios] = React.useState<Usuario[]>([]);
@@ -150,6 +154,41 @@ export function AdministracaoScreen({
   function showError(nextMessage: string) {
     setMessageTone("error");
     setMessage(nextMessage);
+  }
+
+  function confirmOrphanCleanup() {
+    const confirmationMessage =
+      "Somente visitas abertas sem cliente ou piscina validos serao removidas. Atendimentos concluidos permanecerao no historico.";
+
+    if (process.env.EXPO_OS === "web") {
+      if (globalThis.confirm(confirmationMessage)) {
+        runOrphanCleanup();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Limpar dados de demonstracao e registros orfaos",
+      confirmationMessage,
+      [
+        { style: "cancel", text: "Cancelar" },
+        {
+          style: "destructive",
+          text: "Limpar",
+          onPress: runOrphanCleanup,
+        },
+      ],
+    );
+  }
+
+  function runOrphanCleanup() {
+    void onCleanOrphanVisits?.()
+      .then((removedCount) => {
+        showSuccess(`${removedCount} visita(s) orfa(s) aberta(s) removida(s). Historicos concluidos foram preservados.`);
+      })
+      .catch((error: unknown) => {
+        showError(getAdminErrorMessage(error));
+      });
   }
 
   function updateForm(field: keyof typeof form, value: string) {
@@ -428,6 +467,20 @@ export function AdministracaoScreen({
             <Text selectable style={styles.messageText}>
               {message}
             </Text>
+          </AppCard>
+        ) : null}
+
+        {orphanVisitCount > 0 && onCleanOrphanVisits ? (
+          <AppCard style={styles.section} tone="warning">
+            <Text style={styles.sectionTitle}>Registros orfaos detectados</Text>
+            <Text selectable style={styles.sectionSubtitle}>
+              {orphanVisitCount} visita(s) sem cliente ou piscina validos estao ocultas da agenda.
+            </Text>
+            <PrimaryButton
+              onPress={confirmOrphanCleanup}
+              title="Limpar dados de demonstracao e registros orfaos"
+              variant="danger"
+            />
           </AppCard>
         ) : null}
 

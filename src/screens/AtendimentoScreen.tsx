@@ -75,7 +75,7 @@ export function AtendimentoScreen({
 }: AtendimentoScreenProps) {
   const returnHomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalizingRef = useRef(false);
-  const [clientName, setClientName] = useState(initialClientName ?? "Condominio Lago Azul");
+  const [clientName, setClientName] = useState(initialClientName ?? clients[0]?.name ?? "");
   const [attendanceDate] = useState(initialAttendanceDate ?? new Date().toLocaleDateString("pt-BR"));
   const [started, setStarted] = useState(!initialVisitId);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
@@ -288,6 +288,7 @@ export function AtendimentoScreen({
         clienteId: initialClientId ?? selectedClient?.id,
         clientName: clientName.trim(),
         completedItems: completedLabels,
+        completedAt: new Date().toISOString(),
         empresaId: initialEmpresaId,
         missingProducts: neededProducts,
         observations: observations.trim(),

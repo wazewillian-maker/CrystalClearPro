@@ -7,9 +7,12 @@ import { InfoCard } from "../components/info-card";
 import { PoolReferencePhoto } from "../components/pool-reference-photo";
 import { PrimaryButton } from "../components/primary-button";
 import { StatusBadge } from "../components/status-badge";
+import { getNextValidAgendaItem } from "../services/scheduled-visits-service";
 import colors from "../theme/colors";
 import { agendaStatusLabels, type AgendaItem } from "../types/agenda";
 import { clientPlanLabels, type Client } from "../types/client";
+import { getAgendaItemsForLocalDay } from "../utils/daily-agenda";
+import { isSameLocalDay, parseLocalDate } from "../utils/local-date";
 
 export type DashboardMetric = {
   helper?: string;
@@ -97,10 +100,20 @@ export function HomeScreen({
     payments: onOpenFinance,
     products: onOpenProducts,
   };
-  const orderedPendingAgendaItems = sortAgendaItemsByDate(agendaItems.filter((item) => item.status !== "finished"));
-  const todayAgendaItems = orderedPendingAgendaItems.filter(isAgendaItemToday);
-  const nextAgendaItem = orderedPendingAgendaItems[0];
+  const orderedAgendaItems = sortAgendaItemsByDate(agendaItems);
+  const todayAgendaItems = getAgendaItemsForLocalDay(orderedAgendaItems);
+  const nextAgendaItem = getNextValidAgendaItem(orderedAgendaItems);
   const nextAgendaClient = clients.find((client) => client.id === nextAgendaItem?.clientId || client.name === nextAgendaItem?.clientName);
+
+  console.info("[Agenda Derivada] proxima visita", {
+    data: nextAgendaItem?.data ?? nextAgendaItem?.visitDate ?? null,
+    motivo: nextAgendaItem && isSameLocalDay(nextAgendaItem.data ?? nextAgendaItem.visitDate)
+      ? "Primeira visita pendente de hoje."
+      : nextAgendaItem
+        ? "Primeira visita futura valida."
+        : "Nenhuma visita pendente hoje ou no futuro.",
+    piscinaId: nextAgendaItem?.piscinaId ?? null,
+  });
 
   return (
     <View style={styles.root}>
@@ -392,8 +405,8 @@ function getAgendaStatusLabel(status: AgendaItem["status"]) {
 
 function sortAgendaItemsByDate(items: AgendaItem[]) {
   return [...items].sort((left, right) => {
-    const leftTime = parseAgendaDate(left.data ?? left.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const rightTime = parseAgendaDate(right.data ?? right.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const leftTime = parseLocalDate(left.data ?? left.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const rightTime = parseLocalDate(right.data ?? right.visitDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
 
     if (leftTime !== rightTime) {
       return leftTime - rightTime;
@@ -401,30 +414,6 @@ function sortAgendaItemsByDate(items: AgendaItem[]) {
 
     return safeText(left.clientName).localeCompare(safeText(right.clientName));
   });
-}
-
-function isAgendaItemToday(item: AgendaItem) {
-  const visitDate = parseAgendaDate(item.data ?? item.visitDate);
-  return Boolean(visitDate && visitDate.getTime() === startOfDay(new Date()).getTime());
-}
-
-function parseAgendaDate(value?: string) {
-  if (!value || value === "Hoje") {
-    return value === "Hoje" ? startOfDay(new Date()) : null;
-  }
-
-  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-
-  if (brDate) {
-    return startOfDay(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 const styles = StyleSheet.create({

@@ -1,7 +1,6 @@
 import React from "react";
 import {
   KeyboardAvoidingView,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,39 +20,15 @@ type LoginScreenProps = {
   authErrorMessage?: string | null;
   firstAccessMessage?: string;
   onFirebaseLogin: (email: string, senha: string) => Promise<void>;
-  onLogin: (role: TestUserRole) => void;
   onOpenFirstAccess: () => void;
   onPasswordReset: (email: string) => Promise<void>;
   showFirstAccessButton: boolean;
 };
 
-const roleOptions: Array<{
-  description: string;
-  label: string;
-  value: TestUserRole;
-}> = [
-  {
-    description: "Acesso total ao aplicativo.",
-    label: "Dono",
-    value: "owner",
-  },
-  {
-    description: "Funcoes operacionais sem Financeiro.",
-    label: "Socio/Funcionario",
-    value: "staff",
-  },
-  {
-    description: "Area exclusiva para historico e aprovacoes.",
-    label: "Cliente (Teste)",
-    value: "client",
-  },
-];
-
 export function LoginScreen({
   authErrorMessage,
   firstAccessMessage,
   onFirebaseLogin,
-  onLogin,
   onOpenFirstAccess,
   onPasswordReset,
   showFirstAccessButton,
@@ -64,7 +39,6 @@ export function LoginScreen({
   const [feedbackTone, setFeedbackTone] = React.useState<"error" | "success">("error");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
-  const [selectedRole, setSelectedRole] = React.useState<TestUserRole>("owner");
 
   React.useEffect(() => {
     if (!authErrorMessage) {
@@ -140,7 +114,7 @@ export function LoginScreen({
         <AppCard style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Entrar</Text>
-            <Text style={styles.cardSubtitle}>Acesse o painel operacional em modo de teste.</Text>
+            <Text style={styles.cardSubtitle}>Acesse o painel operacional com seu login cadastrado.</Text>
           </View>
 
           <View style={styles.form}>
@@ -197,44 +171,6 @@ export function LoginScreen({
             />
           ) : null}
 
-          <View style={styles.roleSection}>
-            <Text style={styles.label}>Entrar como</Text>
-            <View style={styles.roleOptions}>
-              {roleOptions.map((option) => {
-                const selected = option.value === selectedRole;
-
-                return (
-                  <Pressable
-                    accessibilityLabel={`Entrar como ${option.label}`}
-                    accessibilityRole="button"
-                    key={option.value}
-                    onPress={() => setSelectedRole(option.value)}
-                    style={({ pressed }) => [
-                      styles.roleOption,
-                      selected && styles.roleOptionSelected,
-                      pressed && styles.roleOptionPressed,
-                    ]}
-                  >
-                    <Text style={styles.roleLabel}>{option.label}</Text>
-                    <Text selectable style={styles.roleDescription}>
-                      {option.description}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          <PrimaryButton
-            icon="~"
-            onPress={() => onLogin(selectedRole)}
-            title="Modo Teste"
-            variant="secondary"
-          />
-
-          <Text selectable style={styles.demoHint}>
-            Use o Modo Teste enquanto o login real esta sendo validado.
-          </Text>
         </AppCard>
 
         <BrandFooter />
@@ -293,12 +229,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  demoHint: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-  },
   form: {
     gap: 14,
   },
@@ -321,47 +251,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(34, 197, 94, 0.38)",
     color: colors.textSecondary,
   },
-  label: {
-    color: colors.white,
-    fontFamily: "Inter",
-    fontSize: 14,
-    fontWeight: "800",
-  },
   root: {
     backgroundColor: colors.background,
     flex: 1,
-  },
-  roleDescription: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  roleLabel: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  roleOption: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 4,
-    padding: 12,
-  },
-  roleOptionPressed: {
-    opacity: 0.84,
-  },
-  roleOptionSelected: {
-    backgroundColor: "rgba(21, 101, 255, 0.28)",
-    borderColor: colors.primaryLight,
-  },
-  roleOptions: {
-    gap: 8,
-  },
-  roleSection: {
-    gap: 10,
   },
   subtitle: {
     color: colors.textSecondary,

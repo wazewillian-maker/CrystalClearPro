@@ -12,12 +12,14 @@ import colors from "../theme/colors";
 import { agendaStatusLabels, type AgendaItem, type AgendaStatus } from "../types/agenda";
 import { clientPlanLabels, type Client } from "../types/client";
 import { employeeRoleLabels, type Employee } from "../types/employee";
+import { getAgendaItemsForDateSection, type AgendaDateSection } from "../utils/daily-agenda";
+import { parseLocalDate } from "../utils/local-date";
 
 const statusOptions: AgendaStatus[] = ["pending", "in-progress", "finished"];
 const filterStatusOptions: Array<"all" | AgendaStatus | "late"> = ["all", "pending", "in-progress", "finished", "late"];
 const sectionOptions = ["today", "tomorrow", "week", "late"] as const;
 
-type AgendaSectionId = (typeof sectionOptions)[number];
+type AgendaSectionId = (typeof sectionOptions)[number] & AgendaDateSection;
 type AgendaStatusFilter = (typeof filterStatusOptions)[number];
 
 type AgendaScreenProps = {
@@ -460,12 +462,9 @@ function filterAgendaItems(
   dateFilter: string,
 ) {
   const normalizedDateFilter = normalizeSearch(dateFilter);
+  const sectionItems = getAgendaItemsForDateSection(items, activeSection);
 
-  return items.filter((item) => {
-    if (!isItemInSection(item, activeSection)) {
-      return false;
-    }
-
+  return sectionItems.filter((item) => {
     if (employeeFilter === "unassigned" && hasResponsible(item)) {
       return false;
     }
@@ -497,7 +496,7 @@ function getAgendaSectionCounts(items: AgendaItem[]): Record<AgendaSectionId, nu
   return sectionOptions.reduce(
     (counts, section) => ({
       ...counts,
-      [section]: items.filter((item) => isItemInSection(item, section)).length,
+      [section]: getAgendaItemsForDateSection(items, section).length,
     }),
     {} as Record<AgendaSectionId, number>,
   );
@@ -511,31 +510,6 @@ function emptySectionCounts(): Record<AgendaSectionId, number> {
     }),
     {} as Record<AgendaSectionId, number>,
   );
-}
-
-function isItemInSection(item: AgendaItem, section: AgendaSectionId) {
-  const visitDate = parseAgendaDate(item.data ?? item.visitDate);
-  const today = startOfDay(new Date());
-  const tomorrow = addDays(today, 1);
-  const weekEnd = addDays(today, 6);
-
-  if (section === "late") {
-    return Boolean(visitDate && visitDate < today && item.status !== "finished");
-  }
-
-  if (!visitDate) {
-    return section === "week";
-  }
-
-  if (section === "today") {
-    return sameDay(visitDate, today);
-  }
-
-  if (section === "tomorrow") {
-    return sameDay(visitDate, tomorrow);
-  }
-
-  return visitDate > tomorrow && visitDate <= weekEnd;
 }
 
 function sortAgendaItemsByDate(items: AgendaItem[]) {
@@ -626,32 +600,12 @@ function normalizeSearch(value: string) {
 }
 
 function parseAgendaDate(value?: string) {
-  if (!value || value === "Hoje") {
-    return value === "Hoje" ? startOfDay(new Date()) : null;
-  }
-
-  const brDate = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-
-  if (brDate) {
-    return startOfDay(new Date(Number(brDate[3]), Number(brDate[2]) - 1, Number(brDate[1])));
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
+  const parsed = parseLocalDate(value);
+  return parsed ? startOfDay(parsed) : null;
 }
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(date: Date, days: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + days);
-  return startOfDay(nextDate);
-}
-
-function sameDay(left: Date, right: Date) {
-  return left.getTime() === right.getTime();
 }
 
 const sectionLabels: Record<AgendaSectionId, string> = {

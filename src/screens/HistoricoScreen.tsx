@@ -7,6 +7,7 @@ import { PrimaryButton } from "../components/primary-button";
 import colors from "../theme/colors";
 import type { AttendanceRecord } from "../types/attendance";
 import type { Client } from "../types/client";
+import { formatLocalDateTime } from "../utils/local-date";
 
 type HistoricoScreenProps = {
   attendances: AttendanceRecord[];
@@ -116,6 +117,10 @@ function AttendanceDetail({ attendance, client }: AttendanceDetailProps) {
           {attendance.clientName}
         </Text>
         <DetailRow label="Data do atendimento" value={attendance.attendanceDate} />
+        <DetailRow
+          label="Concluido em"
+          value={formatLocalDateTime(attendance.completedAt) || "Data e hora nao informadas"}
+        />
         <DetailRow label="Piscina" value={attendance.poolName ?? "Piscina nao encontrada"} />
         <DetailRow label="Atendido por" value={attendance.employeeName ?? "Nao informado"} />
         <DetailRow label="pH" value={attendance.ph || "Nao informado"} />

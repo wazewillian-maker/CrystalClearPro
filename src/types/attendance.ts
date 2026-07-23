@@ -21,6 +21,7 @@ export type AttendanceRecord = {
   clientName: string;
   empresaId?: string;
   attendanceDate: string;
+  completedAt?: string;
   employeeId?: string;
   employeeName?: string;
   piscinaId?: string;

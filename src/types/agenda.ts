@@ -15,6 +15,7 @@ export type AgendaItem = {
   origem?: "Automatica" | "Manual" | "Agenda Inteligente";
   poolName?: string;
   status: AgendaStatus;
+  virtual?: boolean;
 };
 
 export const agendaStatusLabels: Record<AgendaStatus, string> = {

@@ -26,6 +26,8 @@ export type Piscina = {
   dataAvulsa?: string;
   diaMesAtendimento?: number;
   dataAtendimentoAvulso?: string;
+  dataInicio?: string;
+  dataInicial?: string;
   status: PiscinaStatus;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

@@ -13,7 +13,7 @@ export type Usuario = {
   perfil: UsuarioPerfil;
   status: UsuarioStatus;
   ativo?: boolean;
-  clienteId?: string;
+  clienteId?: string | null;
   funcionarioId?: string;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;

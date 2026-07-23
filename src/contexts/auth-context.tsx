@@ -186,7 +186,7 @@ function normalizeAuthenticatedUser(uid: string, usuario: Usuario): Authenticate
   return {
     ativo: usuario.ativo ?? usuario.status === "ativo",
     cargo: usuario.cargo,
-    clienteId: usuario.clienteId,
+    clienteId: usuario.clienteId ?? undefined,
     email: usuario.email,
     empresaId: usuario.empresaId,
     funcionarioId: usuario.funcionarioId,
